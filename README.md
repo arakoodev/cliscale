@@ -115,6 +115,7 @@ The load balancer routes by URL path:
 - Stores session metadata (`sessionId` → `podIP` mapping)
 - Tracks one-time JTIs to prevent JWT replay
 - Auto-prunes expired sessions
+- **Uses Knex.js for migrations**: Version-controlled schema changes
 
 ---
 
@@ -145,8 +146,9 @@ skaffold run \
 1. Builds controller, gateway, and runner Docker images
 2. Pushes to Artifact Registry via Cloud Build
 3. Deploys via Helm
-4. Creates a GCE load balancer
-5. ✅ Ready to use!
+4. **Runs database migrations** (Knex)
+5. Creates a GCE load balancer
+6. ✅ Ready to use!
 
 ### Get Your Load Balancer IP
 
@@ -258,6 +260,16 @@ About 5 minutes. They're single-use (JTI is consumed on first WebSocket connecti
 ### Q: Where is the xterm.js frontend?
 Embedded in the gateway. No separate deployment needed.
 
+### Q: How do I run database migrations?
+Migrations run automatically during deployment. To run manually:
+```bash
+cd controller && npm run migrate:latest
+```
+See [controller/MIGRATIONS.md](./controller/MIGRATIONS.md) for details.
+
+### Q: What happened to db/schema.sql?
+Now using Knex migrations in `controller/src/migrations/`. Version-controlled and easier to manage.
+
 ---
 
 ## 📂 Project Structure
@@ -265,11 +277,15 @@ Embedded in the gateway. No separate deployment needed.
 ```
 cliscale/
 ├── controller/           # API + job spawning
+│   ├── src/
+│   │   ├── migrations/   # Knex database migrations
+│   │   └── tests/        # Jest tests
+│   ├── knexfile.js       # Knex configuration
+│   └── MIGRATIONS.md     # Migration documentation
 ├── ws-gateway/           # WebSocket proxy + xterm.js serving
 ├── runner/               # Job container (downloads code, runs CLI)
 ├── cliscale-chart/       # Helm chart
 ├── skaffold.yaml         # Build & deploy config
-├── db/schema.sql         # PostgreSQL schema
 └── sample-cli/           # Example CLI to run
 ```
 
@@ -284,11 +300,27 @@ skaffold dev --port-forward \
   --profile=dev
 ```
 
+### Database Migrations
+
+```bash
+# Run pending migrations
+cd controller && npm run migrate:latest
+
+# Create new migration
+cd controller && npm run migrate:make create_my_table
+
+# Rollback last migration
+cd controller && npm run migrate:rollback
+```
+
+See **[controller/MIGRATIONS.md](./controller/MIGRATIONS.md)** for detailed migration guide.
+
 ---
 
 ## 📚 Documentation
 
 - **[DEPLOYMENT.md](./DEPLOYMENT.md)**: Detailed deployment guide
+- **[controller/MIGRATIONS.md](./controller/MIGRATIONS.md)**: Database migration guide
 - **[HELM_PLAN.md](./HELM_PLAN.md)**: Security review
 - **[CODE_REVIEW_FINDINGS.md](./CODE_REVIEW_FINDINGS.md)**: Implementation verification
 

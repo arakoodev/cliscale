@@ -1,40 +1,57 @@
-import pg from 'pg';
+import knex from 'knex';
 import pino from 'pino';
 
-const { Pool } = pg;
 const log = pino({ level: process.env.LOG_LEVEL || 'info' });
 
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  // Add connection pool configuration
-  max: process.env.DB_MAX_CONNECTIONS ? parseInt(process.env.DB_MAX_CONNECTIONS) : 20, // Maximum number of clients
-  idleTimeoutMillis: process.env.DB_IDLE_TIMEOUT_MILLIS ? parseInt(process.env.DB_IDLE_TIMEOUT_MILLIS) : 30000, // Close idle clients after 30 seconds
-  connectionTimeoutMillis: 10000, // Timeout after 10 seconds trying to connect
-  // Enable SSL for Cloud SQL
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false
+// Initialize Knex with configuration
+export const db = knex({
+  client: 'pg',
+  connection: process.env.DATABASE_URL || {
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '5432'),
+    database: process.env.DB_NAME || 'cliscale',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || 'postgres',
+  },
+  pool: {
+    min: 2,
+    max: process.env.DB_MAX_CONNECTIONS ? parseInt(process.env.DB_MAX_CONNECTIONS) : 20,
+    idleTimeoutMillis: process.env.DB_IDLE_TIMEOUT_MILLIS ? parseInt(process.env.DB_IDLE_TIMEOUT_MILLIS) : 30000,
+    acquireTimeoutMillis: 10000,
+  },
+  // Enable SSL for Cloud SQL in production
+  ...(process.env.NODE_ENV === 'production' && {
+    connection: {
+      ...typeof process.env.DATABASE_URL === 'string'
+        ? { connectionString: process.env.DATABASE_URL }
+        : process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: true }
+    }
+  })
 });
 
 // Track pool health
 let isPoolHealthy = true;
 
-pool.on('error', (err, client) => {
-  log.error({ err }, 'Database pool error - attempting recovery');
+// Listen to pool events
+const pool = db.client.pool;
+
+pool.on('createSuccess', () => {
+  log.debug('New database client connected');
+  isPoolHealthy = true;
+});
+
+pool.on('createFail', (err: Error) => {
+  log.error({ err }, 'Database pool connection failed - attempting recovery');
   isPoolHealthy = false;
 
   // Set a timer to mark as healthy again after a short period
   setTimeout(() => {
     isPoolHealthy = true;
   }, 5000);
-
-  // DO NOT call process.exit() - let the pool reconnect automatically
 });
 
-pool.on('connect', (client) => {
-  log.debug('New database client connected');
-  isPoolHealthy = true;
-});
-
-pool.on('remove', (client) => {
+pool.on('destroySuccess', () => {
   log.debug('Database client removed from pool');
 });
 
@@ -45,7 +62,7 @@ export async function checkDatabaseHealth(): Promise<boolean> {
   }
 
   try {
-    const result = await pool.query('SELECT 1');
+    const result = await db.raw('SELECT 1');
     return result.rows.length === 1;
   } catch (err) {
     log.error({ err }, 'Database health check failed');
@@ -56,7 +73,7 @@ export async function checkDatabaseHealth(): Promise<boolean> {
 // Graceful shutdown
 export async function closeDatabasePool(): Promise<void> {
   log.info('Closing database pool');
-  await pool.end();
+  await db.destroy();
 }
 
 // Handle process termination

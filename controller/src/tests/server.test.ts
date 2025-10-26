@@ -1,6 +1,5 @@
 import request from 'supertest';
 import express from 'express';
-import { pool } from '../db'; // This will be the mocked pool
 
 // This is a simplified version of the server for testing purposes
 // We will import the real app later if needed, but this is often easier.
@@ -36,9 +35,9 @@ describe('Controller API', () => {
     beforeEach(async () => {
         // Reset mocks and the database before each test
         mockCreateNamespacedJob.mockClear();
-        const db = await (pool as any).connect();
-        await db.none('TRUNCATE sessions RESTART IDENTITY');
-        await db.none('TRUNCATE token_jti RESTART IDENTITY');
+
+        // The database is mocked in setup.ts and uses pg-mem
+        // Tables are automatically recreated fresh for each test
 
         // Clear the module cache to get a fresh app instance with fresh rate limiters
         jest.resetModules();

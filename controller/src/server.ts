@@ -5,7 +5,7 @@ import pinoHttp from 'pino-http';
 import * as k8s from '@kubernetes/client-node';
 import { v4 as uuidv4 } from 'uuid';
 import { createSessionJWT, getJWKS } from './sessionJwt.js';
-import { pool, checkDatabaseHealth, closeDatabasePool } from './db.js';
+import { db, checkDatabaseHealth, closeDatabasePool } from './db.js';
 import rateLimit from 'express-rate-limit';
 import { validateCodeUrl, validateCommand, validateChecksum, validatePrompt } from './validation.js';
 import { asyncHandler } from './asyncHandler.js';
@@ -229,10 +229,12 @@ app.post('/api/sessions', sessionLimiter, requireApiKey, asyncHandler(async (req
   };
 
   await batch.createNamespacedJob(namespace, job);
-  await pool.query(
-    'INSERT INTO sessions (session_id, owner_user_id, job_name, expires_at) VALUES ($1, $2, $3, $4)',
-    [sessionId, clientId, jobName, sessionExpires]
-  );
+  await db('sessions').insert({
+    session_id: sessionId,
+    owner_user_id: clientId,
+    job_name: jobName,
+    expires_at: sessionExpires
+  });
 
   // Improved pod polling with timeout
   let podIP: string | undefined;
@@ -253,10 +255,12 @@ app.post('/api/sessions', sessionLimiter, requireApiKey, asyncHandler(async (req
 
       if (pod) {
         podIP = pod.status?.podIP;
-        await pool.query(
-          'UPDATE sessions SET pod_ip = $1, pod_name = $2 WHERE session_id = $3',
-          [podIP, pod.metadata?.name, sessionId]
-        );
+        await db('sessions')
+          .where({ session_id: sessionId })
+          .update({
+            pod_ip: podIP,
+            pod_name: pod.metadata?.name
+          });
         break;
       }
     } catch (err) {
@@ -282,10 +286,11 @@ app.post('/api/sessions', sessionLimiter, requireApiKey, asyncHandler(async (req
     expSec: sessionExpirySeconds
   });
 
-  await pool.query(
-    'INSERT INTO token_jti (jti, session_id, expires_at) VALUES ($1, $2, $3)',
-    [jti, sessionId, sessionExpires]
-  );
+  await db('token_jti').insert({
+    jti,
+    session_id: sessionId,
+    expires_at: sessionExpires
+  });
 
   res.json({ sessionId, wsUrl:`/ws/${sessionId}`, token });
 }));
@@ -299,12 +304,10 @@ app.get('/api/sessions/:id', requireApiKey, asyncHandler(async (req,res)=>{
     return res.status(400).json({ error: 'Invalid session ID format' });
   }
 
-  const { rows } = await pool.query(
-    'SELECT * FROM sessions WHERE session_id = $1',
-    [sessionId]
-  );
+  const session = await db('sessions')
+    .where({ session_id: sessionId })
+    .first();
 
-  const session = rows[0];
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
   }
