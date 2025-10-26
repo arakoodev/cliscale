@@ -23,6 +23,7 @@
 | 2025-10-22 | **Migrate to Helm charts** for Kubernetes deployments                                         | Consistent, parameterized configs; easier management                | Single source of truth; eliminated raw manifest drift                                  |
 | 2025-10-22 | **Add Skaffold** for App Engine-like deployment experience                                     | Simple desktop → GKE deployment; dev mode with live reload          | `skaffold run` replaces complex build/deploy steps                                    |
 | 2025-10-22 | **Comprehensive security review** + code verification                                          | Ensure production readiness for life-critical system                | All 9 CRITICAL issues resolved; 24/29 total issues fixed (83%)                        |
+| 2025-10-26 | **Knex.js migrations** + **Helm pre-install hooks** + **CI smoke tests**                       | Version-controlled schema changes; automatic migrations; lifecycle testing | Safe, idempotent migrations via Helm hooks; smoke tests catch runtime errors         |
 
 ---
 
@@ -71,6 +72,15 @@
 * **Security contexts must be consistent**: Controller and gateway should have identical hardening.
 * **Health checks should verify dependencies**: Don't just return "ok" - actually check database connectivity.
 
+### 2.7 Database Migrations & Testing
+
+* **Raw SQL files vs migration tools**: `db/schema.sql` worked initially but created versioning problems.
+* **Knex.js migrations** provide version control, rollback capability, and idempotent execution.
+* **Helm pre-install hooks** are perfect for migrations: run once before deployment, safe to retry.
+* **Smoke tests must test full lifecycle**: Syntax checks miss runtime errors like "Called end on pool more than once".
+* **GitHub CI with PostgreSQL service**: Real database testing catches issues that mocks miss.
+* **Skaffold + Helm integration**: Automatic migrations with `wait: true` means no manual intervention needed.
+
 ---
 
 ## 3) What Went Well
@@ -84,13 +94,17 @@
 * **Skaffold integration** delivers promised App Engine-like UX: `skaffold run` → deployed.
 * **Security review** caught critical issues before production: network policy bugs, missing configs, deployment workflow issues.
 * **Code verification** found and fixed implementation bugs that config review missed.
+* **Knex.js migrations** with Helm hooks: Zero-downtime, automatic, idempotent database schema updates.
+* **Comprehensive smoke tests** in CI: Catch runtime errors (like double pool.destroy()) that unit tests miss.
+* **PostgreSQL in GitHub CI**: Fast, free, reliable database testing without Docker complexity.
 
 ---
 
 ## 4) Outstanding Work & Recommendations
 
-### ✅ COMPLETED (2025-10-22)
+### ✅ COMPLETED
 
+**2025-10-22:**
 * ✅ **Helm chart migration** - All Kubernetes resources now managed via Helm
 * ✅ **Skaffold deployment** - App Engine-like `skaffold run` experience
 * ✅ **Security hardening** - All 9 CRITICAL issues resolved
@@ -98,6 +112,15 @@
 * ✅ **Connection pooling** - Both controller and gateway properly configured
 * ✅ **Health checks verified** - All endpoints implemented and working
 * ✅ **Deployment workflow fixed** - Single secure path via Skaffold + Helm
+
+**2025-10-26:**
+* ✅ **Knex.js migrations** - Version-controlled schema changes replace raw SQL
+* ✅ **Helm migration hooks** - Automatic, idempotent migrations before every deployment
+* ✅ **Skaffold integration** - Migrations run seamlessly with `skaffold dev` and `skaffold run`
+* ✅ **Database pool closing bug fixed** - Guard flag prevents "Called end on pool more than once" error
+* ✅ **GitHub CI enhancements** - PostgreSQL service + migration step + smoke tests
+* ✅ **Comprehensive smoke tests** - Full server lifecycle testing (startup → request → shutdown)
+* ✅ **Migration documentation** - Complete K8s migration guide (MIGRATIONS_K8S.md)
 
 ### P0 — Now (For Production)
 
@@ -182,9 +205,14 @@ See **[HELM_PLAN.md](./HELM_PLAN.md)** for complete security review.
 ### Database
 
 * **Cloud SQL (PostgreSQL)**
-  * `db/schema.sql` — UNLOGGED `sessions` + `token_jti`, indexes, and expiry triggers
-  * **Sidecar** Cloud SQL Auth Proxy in controller and gateway deployments
+  * **Knex.js migrations** — Version-controlled schema in `controller/src/migrations/`
+    * `20250126000001_create_sessions_table.ts` — UNLOGGED `sessions` table with indexes
+    * `20250126000002_create_token_jti_table.ts` — UNLOGGED `token_jti` for JWT replay prevention
+  * **Automatic migrations** — Helm pre-install/pre-upgrade hooks run migrations before deployment
+  * **Migration Job** — `cliscale-chart/templates/migrate-job.yaml` with retry logic and cleanup
+  * **Sidecar** Cloud SQL Auth Proxy in controller, gateway, and migration jobs
   * Apps connect to `127.0.0.1:5432`
+  * **Legacy**: `db/schema.sql` (replaced by Knex migrations)
 
 ### Authentication
 
@@ -228,6 +256,24 @@ See **[HELM_PLAN.md](./HELM_PLAN.md)** for complete security review.
 
 * **[MIGRATION_SUMMARY.md](./MIGRATION_SUMMARY.md)** — Details of Skaffold + Helm migration
 
+### Database Migration Documentation
+
+* **[MIGRATIONS_K8S.md](./MIGRATIONS_K8S.md)** — Kubernetes migration guide
+  * How automatic migrations work via Helm hooks
+  * Running migrations manually on K8s clusters
+  * Troubleshooting migration failures
+  * Rollback procedures
+  * CI/CD integration with Skaffold
+  * Multi-environment setup
+  * Complete workflow examples
+
+* **[controller/MIGRATIONS.md](./controller/MIGRATIONS.md)** — Local development migration guide
+  * Knex.js migration commands
+  * Creating new migrations
+  * Migration file structure
+  * Testing migrations locally
+  * Using Knex query builder in code
+
 ### Security Documentation
 
 * **[HELM_PLAN.md](./HELM_PLAN.md)** — Comprehensive security review
@@ -249,14 +295,18 @@ See **[HELM_PLAN.md](./HELM_PLAN.md)** for complete security review.
 | Path                                      | Why it matters                                                                                                |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `infra/*.tf`                              | **Private VPC**, **private GKE Autopilot**, **private Cloud SQL**, Artifact Registry, and **Helm deployment** |
-| `db/schema.sql`                           | UNLOGGED `sessions` + `token_jti`, indexes, expiry triggers                                                   |
-| `skaffold.yaml`                           | Build + deploy configuration with environment profiles                                                        |
+| `skaffold.yaml`                           | Build + deploy configuration with environment profiles; `wait: true` for automatic migrations                 |
 | `cloudbuild.yaml`                         | CI/CD pipeline using Skaffold                                                                                 |
 | `cliscale-chart/templates/controller.yaml` | Controller Deployment, Service, Ingress, Cloud SQL Proxy sidecar, security context                           |
 | `cliscale-chart/templates/gateway.yaml`   | WS Gateway Deployment, Service, Ingress, BackendConfig, security context                                      |
+| `cliscale-chart/templates/migrate-job.yaml` | **Migration Job** with Helm pre-install/pre-upgrade hooks; runs `npm run migrate:latest`                     |
 | `cliscale-chart/templates/networkpolicy.yaml` | Default-deny runner; allow gateway→runner ingress on `:7681`; fixed labels                                    |
 | `cliscale-chart/templates/rbac.yaml`      | ServiceAccount, Role, RoleBinding for controller                                                              |
-| `cliscale-chart/values.yaml`              | Default configuration for Helm chart                                                                          |
+| `cliscale-chart/values.yaml`              | Default configuration for Helm chart; includes `migrations.*` settings                                        |
+| `controller/src/migrations/*.ts`          | **Knex migrations** - Version-controlled database schema changes                                              |
+| `controller/knexfile.js`                  | Knex configuration for multiple environments (dev, staging, production, test)                                 |
+| `controller/fast-smoke-test.js`           | Full lifecycle smoke test (startup → health check → graceful shutdown)                                        |
+| `db/schema.sql`                           | **LEGACY** - UNLOGGED `sessions` + `token_jti` (replaced by Knex migrations)                                  |
 | `controller/src/server.ts`                | Firebase verify → Job create → Postgres writes → mint RS256 JWT → `/healthz`, `/readyz`                      |
 | `controller/src/sessionJwt.ts`            | **RS256 signer** (from secret) + **JWKS endpoint** (swap to KMS here)                                         |
 | `controller/src/db.ts`                    | PostgreSQL connection pool with configurable limits                                                           |
@@ -314,15 +364,19 @@ cd infra && terraform apply
 3. **Oct 22**: Skaffold integration (skaffold.yaml)
 4. **Oct 22**: Security review & fixes (24/29 issues resolved)
 5. **Oct 22**: Code verification (runner labels, health checks, pooling)
+6. **Oct 26**: Knex.js migrations + Helm hooks + CI smoke tests
 
 ---
 
 **Bottom line:** We now have a **production-ready architecture** with:
 - ✅ Helm-managed Kubernetes deployments
-- ✅ Skaffold for App Engine-like deployment UX
+- ✅ Skaffold for App Engine-like deployment UX (`skaffold run` → automatic migrations → deployed)
 - ✅ All critical security issues resolved (9/9)
 - ✅ Code-verified implementation (health checks, security contexts, network policies)
-- ✅ Comprehensive documentation (DEPLOYMENT.md, HELM_PLAN.md, CODE_REVIEW_FINDINGS.md)
+- ✅ **Automatic database migrations** - Helm pre-install/pre-upgrade hooks with Knex.js
+- ✅ **Full lifecycle testing** - GitHub CI with PostgreSQL service and smoke tests
+- ✅ **Zero-downtime deployments** - Migrations complete before pods restart
+- ✅ Comprehensive documentation (DEPLOYMENT.md, MIGRATIONS_K8S.md, HELM_PLAN.md)
 - ✅ **Approved for staging deployment**
 
 The remaining work is operational (monitoring, DR documentation, rate limiting) - the core system is secure and ready to use.

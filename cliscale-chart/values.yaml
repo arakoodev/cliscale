@@ -9,6 +9,25 @@ db:
   maxConnections: 20
   idleTimeoutMillis: 30000
 
+# -- Database migrations configuration
+# Migrations run automatically via Helm hooks before install/upgrade
+# This is safe to run multiple times - Knex tracks which migrations have been applied
+migrations:
+  # -- Enable automatic migrations via Helm hooks
+  enabled: true
+  # -- Knex environment to use (production, staging, development)
+  knexEnv: "production"
+  # -- Number of retry attempts if migration fails
+  backoffLimit: 3
+  # -- Resource requests/limits for migration job
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
 # -- API key for authentication (set via secret)
 # Leave empty to require manual secret creation
 apiKey: ""

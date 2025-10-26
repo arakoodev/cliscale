@@ -145,10 +145,16 @@ skaffold run \
 **What this does:**
 1. Builds controller, gateway, and runner Docker images
 2. Pushes to Artifact Registry via Cloud Build
-3. Deploys via Helm
-4. **Runs database migrations** (Knex)
+3. **Runs database migrations automatically** (Helm pre-install hook)
+4. Deploys controller and gateway pods
 5. Creates a GCE load balancer
 6. ✅ Ready to use!
+
+**Migrations are fully automated!** Skaffold uses Helm with `wait: true`, which means:
+- Migrations run via Helm hook before deployment
+- Skaffold waits for the migration Job to complete
+- If migrations fail, deployment stops automatically
+- Safe to run multiple times (Knex tracks applied migrations)
 
 ### Get Your Load Balancer IP
 
@@ -261,11 +267,15 @@ About 5 minutes. They're single-use (JTI is consumed on first WebSocket connecti
 Embedded in the gateway. No separate deployment needed.
 
 ### Q: How do I run database migrations?
-Migrations run automatically during deployment. To run manually:
-```bash
-cd controller && npm run migrate:latest
-```
-See [controller/MIGRATIONS.md](./controller/MIGRATIONS.md) for details.
+**Migrations run automatically!** Helm hooks run migrations before every deployment.
+
+For Kubernetes clusters, see [MIGRATIONS_K8S.md](./MIGRATIONS_K8S.md) for:
+- How automatic migrations work
+- Running migrations manually
+- Troubleshooting migration failures
+- Rollback procedures
+
+For local development, see [controller/MIGRATIONS.md](./controller/MIGRATIONS.md).
 
 ### Q: What happened to db/schema.sql?
 Now using Knex migrations in `controller/src/migrations/`. Version-controlled and easier to manage.
@@ -294,16 +304,20 @@ cliscale/
 ## 🔧 Development
 
 ```bash
-# Live reload during development
+# Live reload during development (migrations run automatically on every deployment)
 skaffold dev --port-forward \
   --default-repo=us-central1-docker.pkg.dev/$PROJECT_ID/apps \
   --profile=dev
 ```
 
+**Note:** Skaffold automatically runs database migrations via Helm hooks before deploying changes. You'll see migration logs in the Skaffold output.
+
 ### Database Migrations
 
+**Migrations run automatically** with Skaffold! But you can also run them manually for local development:
+
 ```bash
-# Run pending migrations
+# Run pending migrations (local development)
 cd controller && npm run migrate:latest
 
 # Create new migration
@@ -311,16 +325,28 @@ cd controller && npm run migrate:make create_my_table
 
 # Rollback last migration
 cd controller && npm run migrate:rollback
+
+# View migration logs in Kubernetes
+kubectl logs -n ws-cli -l app.kubernetes.io/component=migration --tail=100
 ```
 
-See **[controller/MIGRATIONS.md](./controller/MIGRATIONS.md)** for detailed migration guide.
+**Skaffold Integration:**
+- `skaffold dev`: Runs migrations on every code change
+- `skaffold run`: Runs migrations once during deployment
+- Migrations run via Helm pre-install/pre-upgrade hooks
+- Skaffold waits for migrations to complete before deploying pods
+- Safe to deploy multiple times (Knex skips already-applied migrations)
+
+See **[MIGRATIONS_K8S.md](./MIGRATIONS_K8S.md)** for Kubernetes migration guide.
+See **[controller/MIGRATIONS.md](./controller/MIGRATIONS.md)** for local development guide.
 
 ---
 
 ## 📚 Documentation
 
 - **[DEPLOYMENT.md](./DEPLOYMENT.md)**: Detailed deployment guide
-- **[controller/MIGRATIONS.md](./controller/MIGRATIONS.md)**: Database migration guide
+- **[MIGRATIONS_K8S.md](./MIGRATIONS_K8S.md)**: Kubernetes migration guide (automatic + manual)
+- **[controller/MIGRATIONS.md](./controller/MIGRATIONS.md)**: Local development migration guide
 - **[HELM_PLAN.md](./HELM_PLAN.md)**: Security review
 - **[CODE_REVIEW_FINDINGS.md](./CODE_REVIEW_FINDINGS.md)**: Implementation verification
 

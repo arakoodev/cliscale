@@ -1,0 +1,125 @@
+{{- if .Values.migrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cliscale.fullname" . }}-migrate-{{ .Release.Revision }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cliscale.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    # Run migrations before installing/upgrading the application
+    helm.sh/hook: pre-upgrade,pre-install
+    # Run after namespace and secrets are created
+    helm.sh/hook-weight: "1"
+    # Delete the job after success (keeps pods for debugging on failure)
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  # Prevent multiple migration jobs from running simultaneously
+  # This is critical for database safety
+  parallelism: 1
+  completions: 1
+  # Keep failed jobs for debugging
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  # Clean up completed jobs after 1 hour
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "cliscale.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+      annotations:
+        # Force pod restart on configmap changes
+        checksum/config: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "cliscale.serviceAccountName" . }}
+      {{- if .Values.controller.serviceAccount.gcpServiceAccount }}
+      # Workload Identity for Cloud SQL access
+      nodeSelector:
+        iam.gke.io/gke-metadata-server-enabled: "true"
+      {{- end }}
+      containers:
+      - name: migrate
+        image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
+        command:
+          - npm
+          - run
+          - migrate:latest
+        env:
+        # Database connection
+        {{- if .Values.cloudsql.enabled }}
+        # Use Cloud SQL Proxy
+        - name: DB_HOST
+          value: "127.0.0.1"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.controller.secrets.databaseUrl }}
+              key: database
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.controller.secrets.databaseUrl }}
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.controller.secrets.databaseUrl }}
+              key: password
+        {{- else }}
+        # Use direct database connection
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.controller.secrets.databaseUrl }}
+              key: url
+        {{- end }}
+        # Node environment
+        - name: NODE_ENV
+          value: {{ .Values.controller.env.nodeEnv | quote }}
+        # Knex configuration
+        - name: KNEX_ENV
+          value: {{ .Values.migrations.knexEnv | quote }}
+        resources:
+          {{- toYaml .Values.migrations.resources | nindent 10 }}
+        securityContext:
+          # Security best practices
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1001
+          capabilities:
+            drop:
+              - ALL
+          readOnlyRootFilesystem: false  # npm needs to write to node_modules
+          seccompProfile:
+            type: RuntimeDefault
+      {{- if .Values.cloudsql.enabled }}
+      # Cloud SQL Proxy sidecar
+      - name: cloud-sql-proxy
+        image: {{ .Values.cloudsql.image }}
+        args:
+          - "--structured-logs"
+          - "--port=5432"
+          - "{{ .Values.cloudsql.instanceConnectionName }}"
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        resources:
+          {{- toYaml .Values.cloudsql.resources | nindent 10 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+{{- end }}

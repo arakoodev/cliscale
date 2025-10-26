@@ -1,4 +1,9 @@
 // Knex configuration for database migrations
+// Determines whether to use TypeScript source or compiled JavaScript
+const useCompiledMigrations = process.env.NODE_ENV === 'production' ||
+                               process.env.NODE_ENV === 'test' ||
+                               process.env.CI === 'true';
+
 export default {
   development: {
     client: 'pg',
@@ -10,9 +15,9 @@ export default {
       password: process.env.DB_PASSWORD || 'postgres',
     },
     migrations: {
-      directory: './src/migrations',
+      directory: useCompiledMigrations ? './dist/migrations' : './src/migrations',
       tableName: 'knex_migrations',
-      extension: 'ts',
+      extension: useCompiledMigrations ? 'js' : 'ts',
     },
     seeds: {
       directory: './src/seeds',
@@ -33,9 +38,9 @@ export default {
       max: 10,
     },
     migrations: {
-      directory: './src/migrations',
+      directory: useCompiledMigrations ? './dist/migrations' : './src/migrations',
       tableName: 'knex_migrations',
-      extension: 'ts',
+      extension: useCompiledMigrations ? 'js' : 'ts',
     },
   },
 
@@ -53,9 +58,9 @@ export default {
       max: 20,
     },
     migrations: {
-      directory: './src/migrations',
+      directory: useCompiledMigrations ? './dist/migrations' : './src/migrations',
       tableName: 'knex_migrations',
-      extension: 'ts',
+      extension: useCompiledMigrations ? 'js' : 'ts',
     },
   },
 
@@ -69,9 +74,9 @@ export default {
       password: process.env.PASSWORD || 'postgres',
     },
     migrations: {
-      directory: './src/migrations',
+      directory: useCompiledMigrations ? './dist/migrations' : './src/migrations',
       tableName: 'knex_migrations',
-      extension: 'ts',
+      extension: useCompiledMigrations ? 'js' : 'ts',
     },
   },
 };
