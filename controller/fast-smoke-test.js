@@ -199,26 +199,27 @@ async function runTest() {
 
     // Step 3: Test graceful shutdown
     console.log('⏳ Step 3: Testing graceful shutdown (SIGTERM)...');
+
+    // Mark test as passed before sending SIGTERM
+    // The exit handler will verify no errors occurred
+    if (!testFailed) {
+      testPassed = true;
+      console.log('✅ Step 3: Graceful shutdown initiated');
+    }
+
     serverProcess.kill('SIGTERM');
 
-    // Wait for graceful shutdown
+    // Wait for graceful shutdown (give it time to complete)
     await setTimeout(SHUTDOWN_TIMEOUT);
 
-    // If server didn't exit, force kill
+    // If server is still running after timeout, force kill
     if (!serverProcess.killed && serverProcess.exitCode === null) {
-      console.error('❌ FAIL: Server did not shut down gracefully, forcing kill');
+      console.error('❌ FAIL: Server did not shut down within timeout, forcing kill');
       testFailed = true;
+      testPassed = false;
       serverProcess.kill('SIGKILL');
       return;
     }
-
-    // Check for errors during shutdown
-    if (testFailed) {
-      return;
-    }
-
-    console.log('✅ Step 3: Graceful shutdown completed');
-    testPassed = true;
 
   } catch (err) {
     console.error('❌ FAIL: Test sequence failed:', err.message);
