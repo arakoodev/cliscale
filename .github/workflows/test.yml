@@ -11,6 +11,21 @@ jobs:
     name: Test Controller
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cliscale_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -34,6 +49,24 @@ jobs:
         working-directory: controller
         run: npm run build
 
+      - name: Run database migrations
+        working-directory: controller
+        run: npm run migrate:latest
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: cliscale_test
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+
       - name: Run smoke test
         working-directory: controller
         run: npm run smoke
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: cliscale_test
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          API_KEY: test-api-key-github-ci
+          PORT: 3000

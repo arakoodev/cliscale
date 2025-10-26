@@ -7,8 +7,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "jest",
-    "smoke": "npm run build && node --check dist/server.js",
-    "smoke:full": "npm run smoke && timeout 10s node dist/server.js || exit 0",
+    "smoke": "npm run build && node fast-smoke-test.js",
+    "smoke:syntax": "npm run build && node --check dist/server.js",
     "migrate:latest": "knex migrate:latest --knexfile knexfile.js",
     "migrate:rollback": "knex migrate:rollback --knexfile knexfile.js",
     "migrate:make": "knex migrate:make --knexfile knexfile.js"

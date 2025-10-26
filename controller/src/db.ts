@@ -32,6 +32,7 @@ export const db = knex({
 
 // Track pool health
 let isPoolHealthy = true;
+let isPoolClosed = false;
 
 // Listen to pool events
 const pool = db.client.pool;
@@ -72,6 +73,12 @@ export async function checkDatabaseHealth(): Promise<boolean> {
 
 // Graceful shutdown
 export async function closeDatabasePool(): Promise<void> {
+  if (isPoolClosed) {
+    log.debug('Database pool already closed, skipping');
+    return;
+  }
+
+  isPoolClosed = true;
   log.info('Closing database pool');
   await db.destroy();
 }
