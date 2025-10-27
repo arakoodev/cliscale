@@ -214,17 +214,24 @@ kubectl describe job -n ws-cli -l app.kubernetes.io/component=migration
 kubectl logs -n ws-cli -l app.kubernetes.io/component=migration --tail=100
 
 # Common issues:
-# 1. Database connection failed
+# 1. Timeout acquiring connection / Pool is full
+#    → Cloud SQL Proxy sidecar not ready yet
+#    → Migration container includes 60-second wait loop
+#    → Check proxy logs: kubectl logs <pod> -c cloud-sql-proxy
+#    → Verify instanceConnectionName in values.yaml
+#
+# 2. Database connection failed
 #    → Check Cloud SQL Proxy is running
 #    → Verify database credentials in secrets
 #    → Check Workload Identity bindings
+#    → Test: kubectl exec <pod> -- nc -z 127.0.0.1 5432
 #
-# 2. Migration syntax error
+# 3. Migration syntax error
 #    → Fix the migration file locally
 #    → Rebuild and redeploy the image
 #    → Helm will run migrations again
 #
-# 3. Migration already applied
+# 4. Migration already applied
 #    → This is fine! Knex skips already-applied migrations
 ```
 

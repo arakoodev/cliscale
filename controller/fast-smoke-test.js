@@ -4,11 +4,13 @@
  * Fast smoke test for the controller
  *
  * This test validates the full server lifecycle:
- * 1. Server starts up and connects to database
- * 2. Server accepts HTTP requests
- * 3. Server shuts down gracefully without errors
+ * 1. Waits for database to be ready (important for CI)
+ * 2. Server starts up and connects to database
+ * 3. Server accepts HTTP requests
+ * 4. Server shuts down gracefully without errors
  *
  * This catches critical runtime issues like:
+ * - Database not ready (CI PostgreSQL service startup race)
  * - Multiple pool.destroy() calls ("Called end on pool more than once")
  * - Database connection failures
  * - Signal handler conflicts (SIGTERM/SIGINT)
@@ -46,6 +48,39 @@ console.log(`   DB_HOST: ${process.env.DB_HOST}`);
 console.log(`   DB_PORT: ${process.env.DB_PORT}`);
 console.log(`   DB_NAME: ${process.env.DB_NAME}`);
 console.log(`   PORT: ${TEST_PORT}\n`);
+
+// Wait for database to be ready (important for CI with PostgreSQL service)
+console.log('⏳ Waiting for database to be ready...');
+const dbHost = process.env.DB_HOST;
+const dbPort = process.env.DB_PORT;
+const maxWaitTime = 30000; // 30 seconds
+const checkInterval = 1000; // 1 second
+let dbReady = false;
+
+for (let waited = 0; waited < maxWaitTime; waited += checkInterval) {
+  try {
+    // Use nc (netcat) to check if database port is open
+    const { execSync } = await import('child_process');
+    execSync(`nc -z ${dbHost} ${dbPort}`, { stdio: 'ignore', timeout: 1000 });
+    dbReady = true;
+    console.log(`✅ Database is ready at ${dbHost}:${dbPort}\n`);
+    break;
+  } catch (err) {
+    if (waited === 0) {
+      process.stdout.write('   Waiting for database');
+    } else {
+      process.stdout.write('.');
+    }
+    await setTimeout(checkInterval);
+  }
+}
+
+if (!dbReady) {
+  console.error(`\n\n❌ Database not ready after ${maxWaitTime/1000} seconds`);
+  console.error(`   Could not connect to ${dbHost}:${dbPort}`);
+  console.error('   Make sure PostgreSQL is running and accessible.\n');
+  process.exit(1);
+}
 
 // Start the server
 const serverProcess = spawn('node', ['dist/server.js'], {

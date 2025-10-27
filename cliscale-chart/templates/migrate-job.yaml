@@ -44,9 +44,23 @@ spec:
         image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
         command:
-          - npm
-          - run
-          - migrate:latest
+          - sh
+          - -c
+          - |
+            {{- if .Values.cloudsql.enabled }}
+            # Wait for Cloud SQL Proxy to be ready
+            echo "Waiting for Cloud SQL Proxy to be ready..."
+            for i in $(seq 1 30); do
+              if nc -z 127.0.0.1 5432 2>/dev/null; then
+                echo "Cloud SQL Proxy is ready!"
+                break
+              fi
+              echo "Waiting for Cloud SQL Proxy... ($i/30)"
+              sleep 2
+            done
+            {{- end }}
+            # Run migrations
+            npm run migrate:latest
         env:
         # Database connection
         {{- if .Values.cloudsql.enabled }}
