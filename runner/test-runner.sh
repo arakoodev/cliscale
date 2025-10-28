@@ -51,22 +51,50 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Wait for container to download code and install deps
-echo "⏳ Waiting for code download and npm install..."
-sleep 5
+# Wait a moment for container to initialize
+sleep 2
 
-# Check container is still running
+# Check container is still running (early check)
 if ! docker ps | grep -q "$CONTAINER_ID"; then
-  echo "❌ FAIL: Container exited unexpectedly"
+  echo "❌ FAIL: Container exited immediately"
   echo ""
   echo "Container logs:"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  docker logs "$CONTAINER_ID"
+  docker logs "$CONTAINER_ID" 2>&1 || echo "Failed to get logs"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   exit 1
 fi
-echo "✅ Container is running"
+
+echo "✅ Container started successfully"
 echo ""
+
+# Wait for code download and install deps
+echo "⏳ Waiting for code download and npm install (this takes ~20 seconds)..."
+for i in {1..30}; do
+  sleep 1
+  if ! docker ps | grep -q "$CONTAINER_ID"; then
+    echo ""
+    echo "❌ FAIL: Container exited during initialization"
+    echo ""
+    echo "Container logs:"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    docker logs "$CONTAINER_ID" 2>&1
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    exit 1
+  fi
+
+  # Check if ttyd has started
+  if docker logs "$CONTAINER_ID" 2>&1 | grep -q "Launching ttyd"; then
+    echo ""
+    echo "✅ ttyd launch detected"
+    break
+  fi
+
+  # Show progress
+  if [ $((i % 5)) -eq 0 ]; then
+    echo "   Still waiting... ($i/30)"
+  fi
+done
 
 # Check logs for expected patterns
 echo "📋 Checking container logs for success patterns..."
