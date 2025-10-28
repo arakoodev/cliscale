@@ -13,13 +13,15 @@ export LB_IP=$(kubectl get ingress cliscale-ingress -n ws-cli -o jsonpath='{.sta
 export API_KEY=$(kubectl get secret cliscale-api-key -n ws-cli -o jsonpath='{.data.API_KEY}' | base64 -d)
 
 # 2. Create a session
-curl -X POST "http://$LB_IP/api/sessions" \
+RESPONSE=$(curl -X POST "http://$LB_IP/api/sessions" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"code_url": "https://github.com/user/repo/tree/main/folder", "command": "npm start"}'
+  -d '{"code_url": "https://github.com/user/repo/tree/main/folder", "command": "npm start"}')
 
-# 3. Open the terminal in your browser
-# http://YOUR_LB_IP/ws/{sessionId}?token={jwt}
+# 3. Get the terminal URL (copy-paste into browser)
+echo $RESPONSE | jq -r '.terminalUrl' | sed "s/YOUR_LB_IP/$LB_IP/"
+
+# Or manually: Open the terminalUrl from response, replacing YOUR_LB_IP with your actual IP
 ```
 
 **That's it!** No DNS, no domains, no TLS required for testing.
@@ -86,6 +88,25 @@ The load balancer routes by URL path:
 | `GET /ws/{sessionId}?token={jwt}` | Gateway (serves xterm.js HTML) |
 | `WS /ws/{sessionId}` | Gateway (WebSocket proxy to runner) |
 
+### Architecture Design Notes
+
+**Q: Why does ttyd serve HTML if gateway also serves xterm.js?**
+
+The gateway serves xterm.js HTML to browsers, but ttyd in runner pods also has HTML serving capability. This is intentional:
+- **Production**: Browsers connect through gateway (secure, with JWT validation)
+- **Debugging**: Can directly connect to ttyd on pod IP for troubleshooting
+- **Simplicity**: ttyd comes with terminal UI by default, no extra configuration needed
+
+**Q: Why not remove gateway and connect directly to runner pods?**
+
+Security! The gateway provides:
+- JWT verification against controller's JWKS endpoint
+- One-time JTI consumption (prevents replay attacks)
+- Session validation from database
+- Centralized rate limiting and monitoring
+
+Direct connection to runner pods would bypass all security controls.
+
 ---
 
 ## ⚙️ Components
@@ -97,19 +118,27 @@ The load balancer routes by URL path:
 - Exposes JWKS endpoint for JWT verification
 - Rate limiting: 5 requests/min per IP
 
-### 2. Gateway
-- Serves self-hosted xterm.js terminal at `/ws/{sessionId}?token={jwt}`
-- Verifies session JWTs via controller's JWKS endpoint
-- Prevents JWT replay by consuming one-time JTI
-- Proxies WebSocket traffic to runner pods
-- Scales horizontally (stateless)
+### 2. Gateway (Security Layer + Terminal UI)
+- **Security First**: Verifies session JWTs via controller's JWKS endpoint
+- **Replay Prevention**: Consumes one-time JTI (prevents token reuse)
+- **Terminal UI**: Serves self-hosted xterm.js at `/ws/{sessionId}?token={jwt}`
+- **WebSocket Proxy**: Proxies authenticated connections to runner pods
+- **Scalable**: Stateless, scales horizontally
 
-### 3. Runner
-- Downloads code from URL (supports GitHub tree URLs like `github.com/user/repo/tree/main/folder`)
-- Installs dependencies
-- Runs command in isolated Kubernetes Job
-- Streams output via ttyd on port 7681
-- Auto-cleanup with TTL
+**Why not connect directly to runner pods?**
+- Runner pods are ephemeral and not exposed externally
+- Gateway provides centralized authentication/authorization
+- One entry point simplifies network policies and monitoring
+
+### 3. Runner (Execution Environment)
+- **tmux + ttyd**: Runs command in tmux session, serves WebSocket on port 7681
+- **Code Download**: Supports GitHub tree URLs (`github.com/user/repo/tree/main/folder`)
+- **Dependency Installation**: Runs `npm install` (or custom install command)
+- **Auto-exit**: Container exits when command completes (configurable)
+- **Exit Code Propagation**: Returns command's actual exit code
+- **Terminal Features**: Full terminal emulation with 100k line scrollback, mouse support
+- **Job Isolation**: Runs in isolated Kubernetes Job with NetworkPolicy
+- **Auto-cleanup**: TTL-based cleanup after completion
 
 ### 4. PostgreSQL (Cloud SQL)
 - Stores session metadata (`sessionId` → `podIP` mapping)
@@ -196,16 +225,20 @@ curl -X POST "http://$LB_IP/api/sessions" \
 ```json
 {
   "sessionId": "abc-123-def-456",
-  "sessionJWT": "eyJhbGc..."
+  "wsUrl": "/ws/abc-123-def-456",
+  "token": "eyJhbGc...",
+  "terminalUrl": "http://YOUR_LB_IP/ws/abc-123-def-456?token=eyJhbGc..."
 }
 ```
 
 ### Open Terminal
 
-Navigate to:
+Just copy-paste the `terminalUrl` from the response:
 ```
 http://YOUR_LB_IP/ws/abc-123-def-456?token=eyJhbGc...
 ```
+
+Replace `YOUR_LB_IP` with your actual load balancer IP and open in browser!
 
 ✅ Terminal loads automatically
 ✅ Connects via WebSocket

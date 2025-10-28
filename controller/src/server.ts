@@ -216,6 +216,10 @@ app.post('/api/sessions', sessionLimiter, requireApiKey, asyncHandler(async (req
               { name:'CODE_CHECKSUM_SHA256', value:String(code_checksum_sha256||'') },
               { name:'COMMAND', value:String(command||'npm run build && node dist/index.js run') },
               { name:'CLAUDE_PROMPT', value:String(prompt||'Analyze the authentication system and suggest improvements') },
+              { name:'TERM', value:'xterm-256color' },
+              { name:'TMUX_SESSION', value:'job' },
+              { name:'TTYD_PORT', value:'7681' },
+              { name:'EXIT_ON_JOB', value:String(process.env.EXIT_ON_JOB || 'true') },
             ],
             ports: [{ name:'ws', containerPort:7681 }],
             resources: {
@@ -292,7 +296,15 @@ app.post('/api/sessions', sessionLimiter, requireApiKey, asyncHandler(async (req
     expires_at: sessionExpires
   });
 
-  res.json({ sessionId, wsUrl:`/ws/${sessionId}`, token });
+  // Pre-compose full terminal URL for convenience
+  const terminalUrl = `http://YOUR_LB_IP/ws/${sessionId}?token=${token}`;
+
+  res.json({
+    sessionId,
+    wsUrl: `/ws/${sessionId}`,
+    token,
+    terminalUrl
+  });
 }));
 
 app.get('/api/sessions/:id', requireApiKey, asyncHandler(async (req,res)=>{

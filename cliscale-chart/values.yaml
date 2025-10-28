@@ -87,6 +87,8 @@ controller:
     allowedOrigins: "*"
     allowedCodeDomains: "github.com,gitlab.com,*.github.com"
     nodeEnv: "production"
+    # Runner configuration passed to Job pods
+    exitOnJob: "true"  # Set to "false" to keep runner pods alive after command completes
   # -- Secret names for existing secrets
   secrets:
     databaseUrl: "pg"

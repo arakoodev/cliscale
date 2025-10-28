@@ -80,6 +80,8 @@ spec:
             value: "{{ .Values.db.maxConnections }}"
           - name: DB_IDLE_TIMEOUT_MILLIS
             value: "{{ .Values.db.idleTimeoutMillis }}"
+          - name: EXIT_ON_JOB
+            value: "{{ .Values.controller.env.exitOnJob }}"
         ports:
           - name: http
             containerPort: 8080
