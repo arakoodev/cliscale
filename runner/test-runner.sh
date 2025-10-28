@@ -10,8 +10,8 @@ echo ""
 
 # Test configuration
 TEST_CODE_URL="https://github.com/arakoodev/cliscale/tree/main/sample-cli"
-# Use simple test command that doesn't require build to avoid TypeScript errors
-TEST_COMMAND="echo Runner Test && ls -la && cat package.json"
+# Use command that runs long enough for test to verify (30 seconds)
+TEST_COMMAND="echo '=== Runner Test Started ===' && ls -la && cat package.json && echo 'Sleeping for 30s to allow test verification...' && sleep 30 && echo '=== Test Complete ==='"
 TEST_PORT=7681
 
 echo "✅ Test Configuration:"
@@ -209,9 +209,10 @@ echo "✅ No fatal errors in logs"
 echo ""
 
 # Test container auto-exit (wait for command to complete)
-echo "⏳ Waiting for container to auto-exit after command completes (max 60 seconds)..."
+# Our test command sleeps for 30s, so wait up to 45s total
+echo "⏳ Waiting for container to auto-exit after command completes (max 45 seconds)..."
 WAIT_COUNT=0
-MAX_WAIT=60
+MAX_WAIT=45
 
 while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
   if ! docker ps | grep -q "$CONTAINER_ID"; then
@@ -236,8 +237,9 @@ while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
 done
 
 if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
-  echo "⚠️  WARNING: Container did not exit within $MAX_WAIT seconds (may still be running)"
-  echo "   This is okay for long-running commands, but our test command should complete quickly"
+  echo "❌ FAIL: Container did not exit within $MAX_WAIT seconds"
+  echo "   Our test command should complete in ~35 seconds (npm install + 30s sleep)"
+  exit 1
 fi
 
 echo ""
