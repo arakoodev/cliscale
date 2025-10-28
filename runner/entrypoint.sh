@@ -30,6 +30,9 @@ fi
 cd /work
 mkdir -p src
 
+# Initialize FOLDER variable for later use
+FOLDER=""
+
 case "$CODE_URL" in
   *github.com/*/tree/*)
     # GitHub tree URL: https://github.com/owner/repo/tree/ref/folder
@@ -46,13 +49,16 @@ case "$CODE_URL" in
       echo "[entrypoint] Owner: $OWNER, Repo: $REPO, Ref: $REF, Folder: $FOLDER"
 
       # Download tarball and extract specific folder
+      echo "[entrypoint] Downloading from: https://api.github.com/repos/$OWNER/$REPO/tarball/$REF"
       curl -fL "https://api.github.com/repos/$OWNER/$REPO/tarball/$REF" | \
-        tar xz --wildcards "*/$FOLDER" --strip-components=1 -C /work/src || {
+        tar xz --wildcards "*/$FOLDER/*" --strip-components=2 -C /work/src || {
         echo "[fatal] Failed to download/extract GitHub tree folder"
         exit 3
       }
 
       echo "[entrypoint] Successfully extracted $FOLDER from GitHub"
+      echo "[entrypoint] Contents of /work/src:"
+      ls -la /work/src
       # Skip checksum validation for GitHub tree URLs
       CODE_CHECKSUM_SHA256=""
     else
@@ -81,18 +87,31 @@ if [ -f bundle.zip ]; then unzip -q bundle.zip -d src || { echo "unzip failed"; 
 if [ -f bundle.tgz ]; then tar -xzf bundle.tgz -C src --strip-components=1 || tar -xzf bundle.tgz -C src; fi
 
 cd /work/src
+echo "[entrypoint] Current directory: $(pwd)"
+echo "[entrypoint] Directory contents:"
+ls -la
+
 # If the archive contains a single directory, cd into it.
 # (Skip this for GitHub tree URLs as they're already in the right place)
 if [ -z "$FOLDER" ] && [ $(ls -1 | wc -l) -eq 1 ] && [ -d "$(ls -1 | head -n1)" ]; then
+  echo "[entrypoint] Found single directory, entering it..."
   cd "$(ls -1 | head -n1)"
+  echo "[entrypoint] New directory: $(pwd)"
+  ls -la
 fi
 
-echo "[entrypoint] installing...";
+echo "[entrypoint] Installing dependencies...";
 : "${INSTALL_CMD:=npm install}"
+echo "[entrypoint] Running: ${INSTALL_CMD}"
 # Use array to prevent injection
-/bin/bash -c "${INSTALL_CMD}"
+/bin/bash -c "${INSTALL_CMD}" || {
+  echo "[fatal] Install command failed"
+  exit 4
+}
 
-echo "[entrypoint] launching ttyd..."
-export CLAUDE_PROMPT="${CLAUDE_PROMPT}"
+echo "[entrypoint] Installation complete!"
+echo "[entrypoint] Launching ttyd on port 7681..."
+echo "[entrypoint] Command to run: ${COMMAND}"
+export CLAUDE_PROMPT="${CLAUDE_PROMPT:-}"
 # Use -- to separate ttyd options from command
 exec ttyd -p 7681 -W -- /bin/bash -c "${COMMAND}"

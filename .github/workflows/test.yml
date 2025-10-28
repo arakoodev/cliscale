@@ -7,6 +7,23 @@ on:
     branches: [ main ]
 
 jobs:
+  test-runner:
+    name: Test Runner
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run runner tests
+        working-directory: runner
+        run: |
+          chmod +x test-runner.sh
+          ./test-runner.sh
+
   test-controller:
     name: Test Controller
     runs-on: ubuntu-latest
