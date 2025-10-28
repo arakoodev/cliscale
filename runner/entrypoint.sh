@@ -113,30 +113,80 @@ echo "[entrypoint] Installation complete!"
 echo "[entrypoint] Starting command in tmux session: ${COMMAND}"
 export CLAUDE_PROMPT="${CLAUDE_PROMPT:-}"
 
-# Configure tmux with more scrollback history
+# Configure tmux with more scrollback history and mouse support
 mkdir -p /tmp/tmux
-echo 'set -g history-limit 100000' > ~/.tmux.conf
+cat > ~/.tmux.conf <<'TMUX_EOF'
+set -g history-limit 100000
+set -g mouse on
+TMUX_EOF
 
-# Create tmux session "job" with the command
-# Use -d to detach immediately so command starts right away
-tmux -S /tmp/tmux/tmux.sock new-session -d -s job "/bin/bash -c '${COMMAND}'"
+# Configuration
+: "${TERM:=xterm-256color}"
+: "${TMUX_SESSION:=job}"
+: "${TMUX_SOCKET:=/tmp/tmux/tmux.sock}"
+: "${TTYD_PORT:=7681}"
+: "${EXIT_ON_JOB:=true}"
 
-echo "[entrypoint] Command started in tmux session 'job'"
+export TERM
+exit_file="/tmp/${TMUX_SESSION}_exit_code"
 
-# Also pipe tmux output to console so docker logs shows it
-# This runs in background and doesn't block
+# Cleanup function for graceful shutdown
+cleanup() {
+  echo "[entrypoint] Cleaning up..."
+  if pgrep -x ttyd >/dev/null 2>&1; then pkill -TERM -x ttyd || true; fi
+  if tmux -S "$TMUX_SOCKET" has-session -t "$TMUX_SESSION" 2>/dev/null; then
+    tmux -S "$TMUX_SOCKET" kill-session -t "$TMUX_SESSION" || true
+  fi
+}
+trap cleanup SIGINT SIGTERM
+
+# Start command in tmux and capture exit code
+echo "[entrypoint] Creating tmux session '$TMUX_SESSION'..."
+tmux -S "$TMUX_SOCKET" new-session -d -s "$TMUX_SESSION" \
+  "bash -c '${COMMAND}'; code=\$?; echo \$code > \"$exit_file\"; echo \"[entrypoint] Command exited with code \$code\"; exit \$code"
+
+echo "[entrypoint] Command started in tmux session '$TMUX_SESSION'"
+
+# Pipe tmux output to console so docker logs shows it
 (
-  # Wait a moment for tmux session to be ready
   sleep 1
-  # Capture pane output to a file continuously
-  while tmux -S /tmp/tmux/tmux.sock has-session -t job 2>/dev/null; do
-    tmux -S /tmp/tmux/tmux.sock capture-pane -t job -p
+  while tmux -S "$TMUX_SOCKET" has-session -t "$TMUX_SESSION" 2>/dev/null; do
+    tmux -S "$TMUX_SOCKET" capture-pane -t "$TMUX_SESSION" -p
     sleep 2
   done
 ) &
 
-echo "[entrypoint] Launching ttyd on port 7681..."
+echo "[entrypoint] Launching ttyd on port $TTYD_PORT..."
+echo "[entrypoint] Connect via browser to see live terminal output"
 
-# Use ttyd to attach to the tmux session
-# Clients will see the live tmux session with proper terminal emulation
-exec ttyd -p 7681 -- tmux -S /tmp/tmux/tmux.sock attach-session -t job
+# Start ttyd in background
+ttyd -p "$TTYD_PORT" -- tmux -S "$TMUX_SOCKET" new -A -s "$TMUX_SESSION" &
+ttyd_pid=$!
+
+# If EXIT_ON_JOB=false, keep ttyd running forever
+if [[ "${EXIT_ON_JOB}" == "false" ]]; then
+  echo "[entrypoint] EXIT_ON_JOB=false, keeping container alive"
+  wait "$ttyd_pid"
+  exit 0
+fi
+
+# Monitor tmux session - when it ends, stop ttyd and exit with job's exit code
+while tmux -S "$TMUX_SOCKET" has-session -t "$TMUX_SESSION" 2>/dev/null; do
+  sleep 2
+done
+
+echo "[entrypoint] Command finished, shutting down..."
+
+# Collect exit code from the job
+job_code=0
+if [[ -f "$exit_file" ]]; then
+  job_code=$(cat "$exit_file" 2>/dev/null || echo 1)
+  echo "[entrypoint] Job exited with code: $job_code"
+fi
+
+# Stop ttyd gracefully
+kill -TERM "$ttyd_pid" 2>/dev/null || true
+wait "$ttyd_pid" 2>/dev/null || true
+
+echo "[entrypoint] Container exiting with code: $job_code"
+exit "$job_code"
