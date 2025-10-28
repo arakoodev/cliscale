@@ -32,17 +32,52 @@ echo $RESPONSE | jq -r '.terminalUrl' | sed "s/YOUR_LB_IP/$LB_IP/"
 
 This stack runs **ephemeral CLI agents** inside Kubernetes Jobs with:
 - **API Key Authentication**: Simple Bearer token auth
-- **WebSocket Streaming**: Live terminal output via xterm.js
+- **WebSocket Streaming**: Live terminal output via xterm.js + tmux
 - **Session Management**: PostgreSQL tracks sessions and prevents JWT replay
 - **One Load Balancer**: Single IP address handles all traffic
+- **Auto-exit**: Containers exit when commands complete
+- **Full Terminal Emulation**: tmux provides 100k line scrollback, mouse support, colors
 
 ### How It Works
 
 1. **Create Session**: Call `POST http://LB_IP/api/sessions` with API key
 2. **Spawn Job**: Controller creates a Kubernetes Job to run your code
-3. **Get URL**: Response includes `sessionId` and `sessionJWT`
-4. **Open Terminal**: Navigate to `http://LB_IP/ws/{sessionId}?token={jwt}`
-5. **Stream Output**: xterm.js automatically connects and streams live output
+3. **Get URL**: Response includes pre-composed `terminalUrl` (just replace YOUR_LB_IP)
+4. **Open Terminal**: Copy-paste the URL into your browser
+5. **Live Execution**: Command runs immediately in tmux, streams to browser via ttyd
+6. **Auto-cleanup**: Container exits when command completes, Job cleans up via TTL
+
+---
+
+## ✨ Key Features
+
+### Terminal Experience
+- **Full Terminal Emulation**: tmux provides proper terminal with colors, cursor movement, interactive prompts
+- **100k Line Scrollback**: Full command output history available
+- **Mouse Support**: Scroll, select, copy text with mouse
+- **Live Updates**: See output as it happens, no polling needed
+- **Persistent Sessions**: Disconnect and reconnect, command keeps running
+
+### Execution
+- **Immediate Start**: Commands execute right away (no waiting for browser connection)
+- **Auto-exit**: Containers exit when commands complete (configurable)
+- **Exit Code Propagation**: Container returns command's actual exit code
+- **GitHub Integration**: Direct support for GitHub tree URLs (`github.com/user/repo/tree/main/folder`)
+- **Flexible Commands**: Run any shell command, script, or CLI tool
+
+### Security
+- **API Key Authentication**: Simple Bearer token for session creation
+- **Short-lived JWTs**: RS256 signed tokens with 5-minute expiry
+- **Replay Prevention**: One-time JTI tokens prevent reuse
+- **Network Isolation**: Jobs run in isolated pods with NetworkPolicy
+- **Rate Limiting**: 5 sessions per minute per IP
+
+### Operations
+- **One Load Balancer**: Single entry point, no per-pod exposure
+- **Auto-cleanup**: TTL-based Job cleanup (default: 5 minutes after completion)
+- **Database Migrations**: Automated via Helm hooks
+- **Horizontal Scaling**: Controller and gateway scale independently
+- **Zero DNS Required**: Works with IP address only
 
 ---
 
@@ -273,6 +308,24 @@ Replace `YOUR_LB_IP` with your actual load balancer IP and open in browser!
 ---
 
 ## ❓ FAQ
+
+### Q: How do I get the terminal URL?
+The API response includes a `terminalUrl` field that's pre-composed:
+```json
+{
+  "terminalUrl": "http://YOUR_LB_IP/ws/{sessionId}?token={jwt}"
+}
+```
+Just replace `YOUR_LB_IP` with your load balancer IP and open in browser!
+
+### Q: Does the command start immediately?
+**YES!** Commands start running as soon as the container starts (in a tmux session). You don't need to connect with a browser first. If you connect later, you'll see the output from where the command currently is.
+
+### Q: What happens when the command finishes?
+The container automatically exits (configurable via `exitOnJob: "false"` in Helm values). The Kubernetes Job then cleans up after the TTL (default: 5 minutes).
+
+### Q: Can I scroll back through the output?
+**YES!** tmux provides 100k lines of scrollback buffer. You can scroll up to see all previous output.
 
 ### Q: Do I need a domain?
 **NO.** Use the load balancer IP directly: `http://34.120.45.67`
