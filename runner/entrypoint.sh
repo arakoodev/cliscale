@@ -110,23 +110,33 @@ echo "[entrypoint] Running: ${INSTALL_CMD}"
 }
 
 echo "[entrypoint] Installation complete!"
-echo "[entrypoint] Starting command: ${COMMAND}"
+echo "[entrypoint] Starting command in tmux session: ${COMMAND}"
 export CLAUDE_PROMPT="${CLAUDE_PROMPT:-}"
 
-# Create output log file
-touch /tmp/output.log
+# Configure tmux with more scrollback history
+mkdir -p /tmp/tmux
+echo 'set -g history-limit 100000' > ~/.tmux.conf
 
-# Run command in background, redirect output to log file
-/bin/bash -c "${COMMAND}" > /tmp/output.log 2>&1 &
-COMMAND_PID=$!
+# Create tmux session "job" with the command
+# Use -d to detach immediately so command starts right away
+tmux -S /tmp/tmux/tmux.sock new-session -d -s job "/bin/bash -c '${COMMAND}'"
 
-echo "[entrypoint] Command started with PID: $COMMAND_PID"
-echo "[entrypoint] Output will be logged to /tmp/output.log"
+echo "[entrypoint] Command started in tmux session 'job'"
 
-# Show output in console as well
-tail -f /tmp/output.log &
+# Also pipe tmux output to console so docker logs shows it
+# This runs in background and doesn't block
+(
+  # Wait a moment for tmux session to be ready
+  sleep 1
+  # Capture pane output to a file continuously
+  while tmux -S /tmp/tmux/tmux.sock has-session -t job 2>/dev/null; do
+    tmux -S /tmp/tmux/tmux.sock capture-pane -t job -p
+    sleep 2
+  done
+) &
 
 echo "[entrypoint] Launching ttyd on port 7681..."
 
-# Use ttyd to tail the log file (browsers will see live output)
-exec ttyd -p 7681 -- /bin/bash -c "tail -f /tmp/output.log"
+# Use ttyd to attach to the tmux session
+# Clients will see the live tmux session with proper terminal emulation
+exec ttyd -p 7681 -- tmux -S /tmp/tmux/tmux.sock attach-session -t job
