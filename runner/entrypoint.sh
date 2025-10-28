@@ -8,7 +8,7 @@ echo "[entrypoint] CODE_URL=${CODE_URL}"
 validate_command() {
   local cmd="$1"
   # Check for dangerous patterns
-  if [[ "$cmd" =~ \$\( ]] || [[ "$cmd" =~ "]] || [[ "$cmd" =~ \$\{ ]]; then
+  if [[ "$cmd" =~ \$\( ]] || [[ "$cmd" =~ '`' ]] || [[ "$cmd" =~ \$\{ ]]; then
     echo "[fatal] Command contains dangerous substitution patterns"
     return 1
   fi
@@ -110,8 +110,23 @@ echo "[entrypoint] Running: ${INSTALL_CMD}"
 }
 
 echo "[entrypoint] Installation complete!"
-echo "[entrypoint] Launching ttyd on port 7681..."
-echo "[entrypoint] Command to run: ${COMMAND}"
+echo "[entrypoint] Starting command: ${COMMAND}"
 export CLAUDE_PROMPT="${CLAUDE_PROMPT:-}"
-# Use -- to separate ttyd options from command
-exec ttyd -p 7681 -W -- /bin/bash -c "${COMMAND}"
+
+# Create output log file
+touch /tmp/output.log
+
+# Run command in background, redirect output to log file
+/bin/bash -c "${COMMAND}" > /tmp/output.log 2>&1 &
+COMMAND_PID=$!
+
+echo "[entrypoint] Command started with PID: $COMMAND_PID"
+echo "[entrypoint] Output will be logged to /tmp/output.log"
+
+# Show output in console as well
+tail -f /tmp/output.log &
+
+echo "[entrypoint] Launching ttyd on port 7681..."
+
+# Use ttyd to tail the log file (browsers will see live output)
+exec ttyd -p 7681 -- /bin/bash -c "tail -f /tmp/output.log"
