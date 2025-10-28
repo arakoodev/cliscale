@@ -11,7 +11,8 @@ echo ""
 # Test configuration
 TEST_CODE_URL="https://github.com/arakoodev/cliscale/tree/main/sample-cli"
 # Use command that runs long enough for test to verify (30 seconds)
-TEST_COMMAND="echo '=== Runner Test Started ===' && ls -la && cat package.json && echo 'Sleeping for 30s to allow test verification...' && sleep 30 && echo '=== Test Complete ==='"
+# Note: Avoid single quotes in TEST_COMMAND to prevent shell escaping issues
+TEST_COMMAND="echo Runner Test Started && ls -la && cat package.json && echo Sleeping for 30s to allow test verification && sleep 30 && echo Test Complete"
 TEST_PORT=7681
 
 echo "✅ Test Configuration:"
@@ -32,7 +33,6 @@ echo ""
 # Start runner container in background
 echo "🏃 Starting runner container..."
 CONTAINER_ID=$(docker run -d \
-  --rm \
   -p ${TEST_PORT}:${TEST_PORT} \
   -e CODE_URL="$TEST_CODE_URL" \
   -e COMMAND="$TEST_COMMAND" \
@@ -48,6 +48,7 @@ cleanup() {
   if [ -n "${CONTAINER_ID:-}" ]; then
     docker logs "$CONTAINER_ID" || true
     docker stop "$CONTAINER_ID" 2>/dev/null || true
+    docker rm "$CONTAINER_ID" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -67,24 +68,30 @@ echo ""
 
 # Wait for code download and install deps
 echo "⏳ Waiting for code download and npm install (this takes ~20 seconds)..."
+echo "🔍 DEBUG: Waiting for container $CONTAINER_ID to launch ttyd..."
 for i in {1..30}; do
   sleep 1
+
+  # Check if ttyd has started first (before checking if container exited)
+  if docker logs "$CONTAINER_ID" 2>&1 | grep -q "Launching ttyd"; then
+    echo ""
+    echo "✅ ttyd launch detected"
+    break
+  fi
+
+  # Only fail if container exited AND ttyd never started
   if ! docker ps | grep -q "$CONTAINER_ID"; then
     echo ""
-    echo "❌ FAIL: Container exited during initialization"
+    echo "❌ FAIL: Container exited during initialization (iteration $i)"
+    echo "🔍 DEBUG: Container ID was: $CONTAINER_ID"
+    echo "🔍 DEBUG: Running containers:"
+    docker ps
     echo ""
     echo "Container logs:"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     docker logs "$CONTAINER_ID" 2>&1
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     exit 1
-  fi
-
-  # Check if ttyd has started
-  if docker logs "$CONTAINER_ID" 2>&1 | grep -q "Launching ttyd"; then
-    echo ""
-    echo "✅ ttyd launch detected"
-    break
   fi
 
   # Show progress

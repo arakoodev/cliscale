@@ -50,11 +50,28 @@ case "$CODE_URL" in
 
       # Download tarball and extract specific folder
       echo "[entrypoint] Downloading from: https://api.github.com/repos/$OWNER/$REPO/tarball/$REF"
+      TEMP_DIR=$(mktemp -d)
       curl -fL "https://api.github.com/repos/$OWNER/$REPO/tarball/$REF" | \
-        tar xz --wildcards "*/$FOLDER/*" --strip-components=2 -C /work/src || {
-        echo "[fatal] Failed to download/extract GitHub tree folder"
+        tar xz -C "$TEMP_DIR" || {
+        echo "[fatal] Failed to download GitHub tarball"
         exit 3
       }
+
+      # Find and move the specific folder
+      EXTRACTED_FOLDER=$(find "$TEMP_DIR" -type d -name "$FOLDER" | head -1)
+      if [ -z "$EXTRACTED_FOLDER" ]; then
+        echo "[fatal] Folder $FOLDER not found in tarball"
+        rm -rf "$TEMP_DIR"
+        exit 3
+      fi
+
+      # Move contents to /work/src
+      mv "$EXTRACTED_FOLDER"/* /work/src/ || {
+        echo "[fatal] Failed to move extracted files"
+        rm -rf "$TEMP_DIR"
+        exit 3
+      }
+      rm -rf "$TEMP_DIR"
 
       echo "[entrypoint] Successfully extracted $FOLDER from GitHub"
       echo "[entrypoint] Contents of /work/src:"
@@ -143,7 +160,7 @@ trap cleanup SIGINT SIGTERM
 # Start command in tmux and capture exit code
 echo "[entrypoint] Creating tmux session '$TMUX_SESSION'..."
 tmux -S "$TMUX_SOCKET" new-session -d -s "$TMUX_SESSION" \
-  "bash -c '${COMMAND}'; code=\$?; echo \$code > \"$exit_file\"; echo \"[entrypoint] Command exited with code \$code\"; exit \$code"
+  "bash -c \"${COMMAND}\"; code=\$?; echo \$code > \"$exit_file\"; echo \"[entrypoint] Command exited with code \$code\"; exit \$code"
 
 echo "[entrypoint] Command started in tmux session '$TMUX_SESSION'"
 
