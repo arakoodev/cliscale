@@ -19,9 +19,9 @@ echo "   COMMAND: $TEST_COMMAND"
 echo "   TTYD_PORT: $TEST_PORT"
 echo ""
 
-# Build the runner image
+# Build the runner image (use local tag to avoid Docker Hub confusion)
 echo "📦 Building runner Docker image..."
-docker build -t runner-test:latest . || {
+docker build -t localhost/runner-test:latest . || {
   echo "❌ FAIL: Docker build failed"
   exit 1
 }
@@ -35,7 +35,7 @@ CONTAINER_ID=$(docker run -d \
   -p ${TEST_PORT}:${TEST_PORT} \
   -e CODE_URL="$TEST_CODE_URL" \
   -e COMMAND="$TEST_COMMAND" \
-  runner-test:latest)
+  localhost/runner-test:latest)
 
 echo "✅ Container started: $CONTAINER_ID"
 echo ""
