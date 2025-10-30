@@ -1,0 +1,20 @@
+{{- range $svc, $cfg := .Values }}
+{{- if and (kindIs "map" $cfg) (hasKey $cfg "pdb") (get $cfg.pdb "enabled") }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cliscale.fullnameFor" (list $ $svc) }}
+  labels:
+    {{- include "cliscale.labelsFor" (list $ $svc) | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "cliscale.selectorLabelsFor" (list $ $svc) | nindent 6 }}
+  {{- if hasKey $cfg.pdb "maxUnavailable" }}
+  maxUnavailable: {{ $cfg.pdb.maxUnavailable }}
+  {{- else if hasKey $cfg.pdb "minAvailable" }}
+  minAvailable: {{ $cfg.pdb.minAvailable }}
+  {{- end }}
+---
+{{- end }}
+{{- end }}

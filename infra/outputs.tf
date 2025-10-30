@@ -22,6 +22,7 @@ output "db_name" {
 output "db_user" {
   description = "The user for the Cloud SQL database."
   value       = google_sql_user.main.name
+  sensitive   = true
 }
 
 output "artifact_registry_repository" {

@@ -1,43 +1,26 @@
-{{- if .Values.controller.hpa.enabled }}
+{{- range $svc, $cfg := .Values }}
+{{- if and (kindIs "map" $cfg) (hasKey $cfg "autoscaling") (get $cfg.autoscaling "enabled") }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ include "cliscale.fullname" . }}-controller-hpa
-  namespace: {{ .Values.namespace }}
+  name: {{ include "cliscale.fullnameFor" (list $ $svc) }}
+  labels:
+    {{- include "cliscale.labelsFor" (list $ $svc) | nindent 4 }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ include "cliscale.fullname" . }}-controller
-  minReplicas: {{ .Values.controller.hpa.minReplicas }}
-  maxReplicas: {{ .Values.controller.hpa.maxReplicas }}
+    name: {{ include "cliscale.fullnameFor" (list $ $svc) }}
+  minReplicas: {{ $cfg.autoscaling.minReplicas | default 1 }}
+  maxReplicas: {{ $cfg.autoscaling.maxReplicas | default 3 }}
+  {{- with $cfg.autoscaling.metrics }}
   metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: {{ .Values.controller.hpa.cpuAverageUtilization }}
-{{- end }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $cfg.autoscaling.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 ---
-{{- if .Values.gateway.hpa.enabled }}
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: {{ include "cliscale.fullname" . }}-gateway-hpa
-  namespace: {{ .Values.namespace }}
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: {{ include "cliscale.fullname" . }}-gateway
-  minReplicas: {{ .Values.gateway.hpa.minReplicas }}
-  maxReplicas: {{ .Values.gateway.hpa.maxReplicas }}
-  metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: {{ .Values.gateway.hpa.cpuAverageUtilization }}
+{{- end }}
 {{- end }}

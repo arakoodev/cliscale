@@ -1,59 +1,37 @@
-{{- if .Values.ingress.enabled }}
+{{- range .Values.ingresses }}
+{{- if .enabled }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "cliscale.fullname" . }}-ingress
-  namespace: {{ .Values.namespace }}
+  name: {{ default (printf "%s-ingress" (include "cliscale.fullname" $)) .name }}
+  namespace: {{ $.Release.Namespace }}
+  {{- with .annotations }}
   annotations:
-    kubernetes.io/ingress.class: "gce"
-    {{- if .Values.gateway.backendConfig.enabled }}
-    cloud.google.com/backend-config: '{"ports": {"80": "{{ include "cliscale.fullname" . }}-gateway-backendconfig"}}'
-    {{- end }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
-  {{- if and .Values.ingress.tls.enabled .Values.ingress.hostname }}
+  {{- with .className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- if .tls }}
   tls:
-  - hosts:
-    - {{ .Values.ingress.hostname }}
-    secretName: {{ .Values.ingress.tls.secretName }}
+    {{- toYaml .tls | nindent 4 }}
   {{- end }}
   rules:
-    {{- if .Values.ingress.hostname }}
-    - host: {{ .Values.ingress.hostname }}
+    {{- range .rules }}
+    - host: {{ .host | quote }}
       http:
-    {{- else }}
-    - http:
-    {{- end }}
         paths:
-          # WebSocket terminal routes (must be first for specific matching)
-          - path: /ws/*
-            pathType: Prefix
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType | default "Prefix" }}
             backend:
               service:
-                name: {{ include "cliscale.fullname" . }}-gateway
+                name: {{ .service.name }}
                 port:
-                  number: 80
-          # API routes to controller
-          - path: /api/*
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "cliscale.fullname" . }}-controller
-                port:
-                  number: 80
-          # JWKS endpoint (for JWT verification)
-          - path: /.well-known/*
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "cliscale.fullname" . }}-controller
-                port:
-                  number: 80
-          # Default: route everything else to controller
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "cliscale.fullname" . }}-controller
-                port:
-                  number: 80
+                  number: {{ .service.port }}
+          {{- end }}
+    {{- end }}
+---
+{{- end }}
 {{- end }}

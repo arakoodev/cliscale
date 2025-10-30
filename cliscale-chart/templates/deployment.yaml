@@ -1,0 +1,123 @@
+{{- range $svc, $cfg := .Values }}
+{{- if and (kindIs "map" $cfg) (hasKey $cfg "image") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cliscale.fullnameFor" (list $ $svc) }}
+  labels:
+    {{- include "cliscale.labelsFor" (list $ $svc) | nindent 4 }}
+  {{- with $cfg.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ $cfg.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "cliscale.selectorLabelsFor" (list $ $svc) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cliscale.selectorLabelsFor" (list $ $svc) | nindent 8 }}
+        {{- with $cfg.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $cfg.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with $cfg.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ if and $cfg.serviceAccount $cfg.serviceAccount.name }}{{ $cfg.serviceAccount.name }}{{ else }}{{ include "cliscale.fullnameFor" (list $ $svc) }}{{ end }}
+      containers:
+        - name: {{ default $svc $cfg.name }}
+          image: "{{ $cfg.image.repository }}:{{ $cfg.image.tag | default $.Chart.AppVersion }}"
+          imagePullPolicy: {{ $cfg.image.pullPolicy | default "IfNotPresent" }}
+          {{- if or (hasKey $cfg "ports") (and $cfg.service (hasKey $cfg.service "containerPort")) }}
+          ports:
+            {{- if $cfg.ports }}
+            {{- toYaml $cfg.ports | nindent 12 }}
+            {{- else }}
+            - name: http
+              containerPort: {{ $cfg.service.containerPort | default 80 }}
+              protocol: TCP
+            {{- end }}
+          {{- end }}
+
+          # ---- Environment Variable Section ----
+          {{- if or $cfg.env $cfg.configMapEnvs $cfg.secretEnvs $cfg.vaultStaticSecret }}
+          env:
+            # 1) Inline env
+            {{- with $cfg.env }}
+            {{- range . }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+            {{- end }}
+
+            # 2) From ConfigMap
+            {{- with $cfg.configMapEnvs }}
+            {{- range . }}
+            - name: {{ .name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .configMap }}
+                  key: {{ .key }}
+            {{- end }}
+            {{- end }}
+
+            # 3) From Secret
+            {{- with $cfg.secretEnvs }}
+            {{- range . }}
+            - name: {{ .name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .secretName }}
+                  key: {{ .secretKey }}
+            {{- end }}
+            {{- end }}
+          {{- end }}
+          # ---- End Env Section ----
+
+          {{- with $cfg.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $cfg.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $cfg.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $cfg.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $cfg.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with $cfg.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $cfg.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $cfg.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $cfg.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+{{- end }}
+{{- end }}

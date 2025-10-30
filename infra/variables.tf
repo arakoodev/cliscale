@@ -9,6 +9,22 @@ variable "region" {
   default     = "us-central1"
 }
 
+variable "cluster_name" {
+  description = "The name of the GKE cluster."
+  type        = string
+}
+
+variable "sql_instace_name" {
+  description = "The name of the Cloud SQL instance."
+  type          = string
+}
+
+variable "sql_database_version" {
+  description = "The version of the Cloud SQL database."
+  type        = string
+  default     = "POSTGRES_15"
+}
+
 variable "db_user" {
   description = "The username for the Cloud SQL database."
   type        = string

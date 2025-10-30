@@ -1,62 +1,34 @@
-{{/*
-Expand the name of the chart.
-*/}}
+{{/* Chart base name */}}
 {{- define "cliscale.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
-{{- end }}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
 
-{{/*
-Create a default fully qualified app name.
-We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
-If release name contains chart name it will be used as a full name.
-*/}}
+{{/* Release fullname */}}
 {{- define "cliscale.fullname" -}}
-{{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride }}
-{{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
-{{- end }}
-{{- end }}
-{{- end }}
+{{- $name := default .Chart.Name .Values.fullnameOverride -}}
+{{- $name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
 
-{{/*
-Create chart name and version as used by the chart label.
-*/}}
-{{- define "cliscale.chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-{{- end }}
+{{/* Service fullname: <release>-<svc> */}}
+{{- define "cliscale.fullnameFor" -}}
+{{- $root := index . 0 -}}
+{{- $svcName := index . 1 -}}
+{{- printf "%s-%s" (include "cliscale.fullname" $root) $svcName | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
 
-{{/*
-Common labels
-*/}}
-{{- define "cliscale.labels" -}}
-helm.sh/chart: {{ include "cliscale.chart" . }}
-{{ include "cliscale.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-{{- end }}
+{{/* Standard labels */}}
+{{- define "cliscale.labelsFor" -}}
+{{- $root := index . 0 -}}
+{{- $svcName := index . 1 -}}
+app.kubernetes.io/name: {{ include "cliscale.fullnameFor" (list $root $svcName) }}
+app.kubernetes.io/instance: {{ $root.Release.Name }}
+app.kubernetes.io/managed-by: {{ $root.Release.Service }}
+helm.sh/chart: {{ printf "%s-%s" $root.Chart.Name $root.Chart.Version | quote }}
+{{- end -}}
 
-{{/*
-Selector labels
-*/}}
-{{- define "cliscale.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "cliscale.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-{{- end }}
-
-{{/*
-Create the name of the service account to use
-*/}}
-{{- define "cliscale.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "cliscale.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
-{{- end }}
-{{- end }}
+{{/* Selector labels */}}
+{{- define "cliscale.selectorLabelsFor" -}}
+{{- $root := index . 0 -}}
+{{- $svcName := index . 1 -}}
+app.kubernetes.io/name: {{ include "cliscale.fullnameFor" (list $root $svcName) }}
+{{- end -}}

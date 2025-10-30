@@ -1,5 +1,7 @@
 # Enable required APIs
 resource "google_project_service" "apis" {
+  project = var.project_id
+
   for_each = toset([
     "container.googleapis.com",
     "sqladmin.googleapis.com",
@@ -8,8 +10,11 @@ resource "google_project_service" "apis" {
     "compute.googleapis.com"
   ])
   service                    = each.key
-  disable_dependency_violation = true
   disable_on_destroy         = false
+    lifecycle {
+    prevent_destroy = false
+    #ignore_changes = [service]
+  }
 }
 
 # VPC Network for GKE and Cloud SQL
@@ -42,18 +47,48 @@ resource "google_service_networking_connection" "vpc_peering" {
   reserved_peering_ranges = [google_compute_global_address.private_ip_alloc.name]
 }
 
+# Cloud NAT Gateway attached the VPC network GKE (Make sure gke cluster can call internet access update dependencies)
+resource "google_compute_router" "router" {
+  name    = "ws-cli-router"
+  network = google_compute_network.main.id
+  region = var.region
+}
+resource "google_compute_router_nat" "nat" {
+  name                               = "ws-cli-nat"
+  router                             = google_compute_router.router.name
+  region                             = google_compute_router.router.region
+  nat_ip_allocate_option             = "AUTO_ONLY"
+  source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
+
+  log_config {
+    enable = true
+    filter = "ERRORS_ONLY"
+  }
+}
+
 # GKE Autopilot Cluster (Private)
 resource "google_container_cluster" "primary" {
-  name     = "ws-cli-cluster"
-  location = var.region
+  name       = var.cluster_name
+  location   = var.region
   network    = google_compute_network.main.id
   subnetwork = google_compute_subnetwork.gke_subnet.id
 
-  enable_private_nodes = true
-  enable_private_endpoint = false # Controller/Gateway will be exposed via GCLB Ingress
+  deletion_protection = false
+
+  private_cluster_config {
+    enable_private_nodes = true
+    enable_private_endpoint = false # Controller/Gateway will be exposed via GCLB Ingress
+    master_ipv4_cidr_block  = "172.16.0.0/28"
+  }
+
+  networking_mode = "VPC_NATIVE"
 
   master_authorized_networks_config {
-    # No external access to the control plane
+    # Correctly finding the public IPs need to whitelist access gke cluster to deploy anything.
+    cidr_blocks {
+      cidr_block   = "0.0.0.0/0"
+      display_name = "admin"
+    }
   }
 
   ip_allocation_policy {
@@ -61,17 +96,30 @@ resource "google_container_cluster" "primary" {
     services_ipv4_cidr_block = "10.30.0.0/20"
   }
 
+  workload_identity_config {
+    workload_pool = "${var.project_id}.svc.id.goog"
+  }
+
+
   # Use Autopilot
   enable_autopilot = true
 
   depends_on = [google_service_networking_connection.vpc_peering]
 }
 
+resource "time_sleep" "wait_for_network" {
+  depends_on = [google_service_networking_connection.vpc_peering]
+  create_duration = "300s"
+}
+
+
 # Cloud SQL for PostgreSQL (Private IP)
 resource "google_sql_database_instance" "main" {
-  name             = "ws-cli-pg"
-  database_version = "POSTGRES_15"
+  name             = var.sql_instace_name
+  database_version = var.sql_database_version
   region           = var.region
+
+  deletion_protection = false
 
   settings {
     tier = "db-g1-small"
@@ -159,39 +207,40 @@ resource "google_service_account_iam_binding" "gateway_workload_identity" {
   ]
 }
 
-resource "helm_release" "cliscale" {
-  name       = "cliscale"
-  chart      = "../cliscale-chart"
-  namespace  = "ws-cli"
+# resource "helm_release" "cliscale" {
+#   name              = "cliscale"
+#   chart             = "../cliscale-chart"
+#   namespace         = "ws-cli"
+#   create_namespace  = true
 
-  values = [
-    yamlencode({
-      controller = {
-        image = {
-          repository = "${google_artifact_registry_repository.main.location}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.main.repository_id}/controller"
-          tag        = var.controller_image_tag
-        }
-        runnerImage = "${google_artifact_registry_repository.main.location}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.main.repository_id}/runner:${var.runner_image_tag}"
-        serviceAccount = {
-          gcpServiceAccount = google_service_account.controller.email
-        }
-      }
-      gateway = {
-        image = {
-          repository = "${google_artifact_registry_repository.main.location}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.main.repository_id}/gateway"
-          tag        = var.gateway_image_tag
-        }
-        serviceAccount = {
-          gcpServiceAccount = google_service_account.gateway.email
-        }
-      }
-      cloudsql = {
-        instanceConnectionName = google_sql_database_instance.main.connection_name
-      }
-      domain   = var.domain
-      wsDomain = var.ws_domain
-    })
-  ]
+#   values = [
+#     yamlencode({
+#       controller = {
+#         image = {
+#           repository = "${google_artifact_registry_repository.main.location}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.main.repository_id}/controller"
+#           tag        = var.controller_image_tag
+#         }
+#         runnerImage = "${google_artifact_registry_repository.main.location}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.main.repository_id}/runner:${var.runner_image_tag}"
+#         serviceAccount = {
+#           gcpServiceAccount = google_service_account.controller.email
+#         }
+#       }
+#       gateway = {
+#         image = {
+#           repository = "${google_artifact_registry_repository.main.location}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.main.repository_id}/gateway"
+#           tag        = var.gateway_image_tag
+#         }
+#         serviceAccount = {
+#           gcpServiceAccount = google_service_account.gateway.email
+#         }
+#       }
+#       cloudsql = {
+#         instanceConnectionName = google_sql_database_instance.main.connection_name
+#       }
+#       domain   = var.domain
+#       wsDomain = var.ws_domain
+#     })
+#   ]
 
-  depends_on = [google_container_cluster.primary]
-}
+#   depends_on = [google_container_cluster.primary]
+# }

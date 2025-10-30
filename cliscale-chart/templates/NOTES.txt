@@ -1,0 +1,3 @@
+This chart renders one set of resources per top-level service block in values.yaml (e.g., controller, frontend, gateway).
+Each block supports: image, replicaCount, resources, env/envFrom, probes, volumes, initContainers, sidecars,
+service (with extraPorts), ingress, autoscaling (HPA), pdb, networkPolicy, and many pod-level knobs.

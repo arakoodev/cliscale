@@ -1,188 +1,217 @@
-# Default values for cliscale-chart.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
-
-# -- Global settings
-namespace: "ws-cli"
-
-db:
-  maxConnections: 20
-  idleTimeoutMillis: 30000
-
-# -- Database migrations configuration
-# Migrations run automatically via Helm hooks before install/upgrade
-# This is safe to run multiple times - Knex tracks which migrations have been applied
-migrations:
-  # -- Enable automatic migrations via Helm hooks
-  enabled: true
-  # -- Knex environment to use (production, staging, development)
-  knexEnv: "production"
-  # -- Number of retry attempts if migration fails
-  backoffLimit: 3
-  # -- Resource requests/limits for migration job
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "256Mi"
-    limits:
-      cpu: "500m"
-      memory: "512Mi"
-
-# -- API key for authentication (set via secret)
-# Leave empty to require manual secret creation
-apiKey: ""
-
-# -- Ingress configuration
-# Creates a single GCE load balancer that routes by path:
-#   - /api/* → controller (HTTP REST API)
-#   - /ws/* → gateway (serves xterm.js HTML + handles WebSocket connections)
-#   - /.well-known/* → controller (JWKS endpoint)
-# Access via load balancer IP (no domain required!)
-# Example: http://34.120.45.67/api/sessions
-ingress:
-  enabled: true
-  # Optional: Set a hostname if you want to use a domain (not required!)
-  # Leave empty to use IP address only
-  hostname: ""
-  tls:
-    # Only enable if you have a domain and TLS certificate
-    enabled: false
-    secretName: ""
-
-# -- Controller specific configuration
+#### 1. Controller Deployment #################
 controller:
   replicaCount: 2
   image:
-    repository: ""
-    pullPolicy: IfNotPresent
-    # -- Overrides the image tag whose default is the chart appVersion.
-    tag: ""
-  runnerImage: ""
+    repository: us-central1-docker.pkg.dev/cliscale/apps/controller
+    pullPolicy: Always
+    tag: "latest"
+  # imagePullSecrets: 
+  #   - name: ""
+  nameOverride: ""
+  fullnameOverride: ""
   serviceAccount:
-    # -- Specifies whether a service account should be created
     create: true
-    # -- Annotations to add to the service account
+    automount: true
     annotations: {}
-    # -- The name of the service account to use.
-    # If not set and create is true, a name is generated using the fullname template
     name: "ws-cli-controller"
-    gcpServiceAccount: ""
-  pdb:
-    minAvailable: 1
-  hpa:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 10
-    cpuAverageUtilization: 80
+  service:
+    type: ClusterIP
+    containerPort: 8080
+    port: 80
   resources:
     requests:
+      memory: "200Mi"
       cpu: "100m"
-      memory: "128Mi"
     limits:
-      cpu: "500m"
-      memory: "512Mi"
-  env:
-    jobTtlSeconds: "300"
-    jobActiveDeadlineSeconds: "3600"
-    allowedOrigins: "*"
-    allowedCodeDomains: "github.com,gitlab.com,*.github.com"
-    nodeEnv: "production"
-    # Runner configuration passed to Job pods
-    exitOnJob: "true"  # Set to "false" to keep runner pods alive after command completes
-  # -- Secret names for existing secrets
-  secrets:
-    databaseUrl: "pg"
-    jwt: "jwt"
+      memory: "500Mi"
+      cpu: "300m"
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 80
+      - type: Resource
+        resource:
+          name: memory
+          target:
+            type: Utilization
+            averageUtilization: 75
+  volumes:
+    - name: jwt-keys
+      secret:
+        secretName: jwt
+    # - name: pg-ca
+    #   secret:
+    #     secretName: pg-ca
+  volumeMounts:
+    - name: jwt-keys
+      mountPath: /run/secrets/jwt
+      readOnly: true
+    # - name: pg-ca
+    #   mountPath: /etc/ssl/certs/pg
+    #   readOnly: true
 
-# -- Gateway specific configuration
+  # -- Liveness and readiness probes
+  livenessProbe: 
+    httpGet:
+      path: /healthz
+      port: 8080
+      scheme: HTTP
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: 8080
+      scheme: HTTP
+    initialDelaySeconds: 5
+    periodSeconds: 10  
+
+  env:
+    - name: RUNNER_IMAGE 
+      value: "us-central1-docker.pkg.dev/cliscale/apps/runner:latest"
+    - name: JOB_TTL_SECONDS
+      value: 300
+    - name: JOB_ACTIVE_DEADLINE_SECONDS
+      value: 3600
+    - name: JWT_PRIVATE_KEY_PATH
+      value: "/run/secrets/jwt/private.pem"
+    - name: ALLOWED_ORIGINS
+      value: '*'
+    - name: ALLOWED_CODE_DOMAINS
+      value: "github.com,gitlab.com,*.github.com"
+    - name: NODE_ENV
+      value: "production"
+    - name: DB_MAX_CONNECTIONS
+      value: 20
+    - name: DB_IDLE_TIMEOUT_MILLIS
+      value: "30000"
+
+  secretEnvs:
+    - name: DATABASE_URL  
+      secretName: "pg"       
+      secretKey: DATABASE_URL      
+    - name: API_KEY    
+      secretName: "cliscale-api-key" 
+      secretKey: API_KEY
+
+
+#### 2. Gateway deployment #######################################
 gateway:
   replicaCount: 3
   image:
-    repository: ""
-    pullPolicy: IfNotPresent
-    # -- Overrides the image tag whose default is the chart appVersion.
-    tag: ""
-  pdb:
-    minAvailable: 2
+    repository: us-central1-docker.pkg.dev/cliscale/apps/gateway
+    pullPolicy: Always
+    tag: "latest"
+  # imagePullSecrets:
+  #   - name: ""
+  nameOverride: ""
+  fullnameOverride: ""
   serviceAccount:
-    gcpServiceAccount: ""
-  hpa:
-    enabled: true
-    minReplicas: 3
-    maxReplicas: 20
-    cpuAverageUtilization: 80
+    create: true
+    automount: true
+    annotations: {}
+    name: "ws-cli-gateway"
+
+  service:
+    type: ClusterIP
+    containerPort: 8080
+    port: 80
+
   resources:
     requests:
-      cpu: "100m"
       memory: "128Mi"
+      cpu: "100m"
     limits:
-      cpu: "1000m"
       memory: "512Mi"
+      cpu: "1"
+
+  # volumes:
+  #   - name: pg-ca
+  #     secret:
+  #       secretName: pg-ca
+  # volumeMounts:
+  #   - name: pg-ca
+  #     mountPath: /etc/ssl/certs/pg
+  #     readOnly: true
+
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: 8080
+      scheme: HTTP
+    initialDelaySeconds: 10
+    periodSeconds: 20
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      path: /healthz
+      port: 8080
+      scheme: HTTP
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
   env:
-    logLevel: "info"
-  backendConfig:
-    enabled: true
-    timeoutSec: 3600
-    drainingTimeoutSec: 60
-  # -- Secret names for existing secrets
-  secrets:
-    databaseUrl: "pg"
+    - name: PORT
+      value: "8080"
+    - name: CONTROLLER_URL
+      value: http://cliscale-controller.ws-cli.svc.cluster.local
+    - name: LOG_LEVEL
+      value: info
+    - name: DB_MAX_CONNECTIONS
+      value: "20"
+    - name: DB_IDLE_TIMEOUT_MILLIS
+      value: "30000"
 
-# -- CloudSQL Proxy sidecar configuration (shared between controller and gateway)
-cloudsql:
-  enabled: true
-  image: "gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.8.0"
-  # -- The connection name of the Cloud SQL instance. This should be populated by Terraform.
-  instanceConnectionName: ""
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "128Mi"
-    limits:
-      cpu: "500m"
-      memory: "512Mi"
+  secretEnvs:
+    - name: DATABASE_URL  
+      secretName: "pg"       
+      secretKey: DATABASE_URL 
 
-# -- RBAC configuration
-rbac:
-  # -- Specifies whether RBAC resources should be created
-  create: true
 
-# -- Optional resources
-resourceQuota:
-  enabled: true
-  pods: "100"
-  requestsCpu: "50"
-  limitsCpu: "100"
-  requestsMemory: "50Gi"
-  limitsMemory: "100Gi"
+### 3. Ingress network ##################################
+ingresses:
+  - enabled: true
+    name: cliscale-ingress
+    className: "gce"
+    annotations:
+      kubernetes.io/ingress.allow-http: "true"
+      kubernetes.io/ingress.class: "gce"
+    tls: {}
+    rules:
+      - host: ""
+        paths:
+          - path: /ws
+            pathType: Prefix
+            service:
+              name: cliscale-gateway
+              port: 80
+          - path: /api
+            pathType: Prefix
+            service:
+              name: cliscale-controller
+              port: 80
 
-limitRange:
-  enabled: true
-  # -- Default pod limits
-  pod:
-    max:
-      cpu: "2"
-      memory: "2Gi"
-    min:
-      cpu: "50m"
-      memory: "64Mi"
-    default:
-      cpu: "500m"
-      memory: "512Mi"
-    defaultRequest:
-      cpu: "100m"
-      memory: "128Mi"
-  # -- Default container limits
-  container:
-    max:
-      cpu: "2"
-      memory: "2Gi"
-    min:
-      cpu: "50m"
-      memory: "64Mi"
-    default:
-      cpu: "500m"
-      memory: "512Mi"
-    defaultRequest:
-      cpu: "100m"
-      memory: "128Mi"
+
+#### 4. RBAC (role base access control) #############
+components:
+  controller:
+    serviceAccount:
+      create: false
+      name: ws-cli-controller
+    rbac:
+      create: true
+      rules:
+        - apiGroups: ["batch"]
+          resources: ["jobs"]
+          verbs: ["get", "list", "create", "delete", "watch"]
+        - apiGroups: [""]
+          resources: ["pods", "pods/log"]
+          verbs: ["get", "list", "watch"]
+
