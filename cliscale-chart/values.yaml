@@ -1,3 +1,5 @@
+runnerImage: ""
+
 #### 1. Controller Deployment #################
 controller:
   replicaCount: 2
@@ -73,9 +75,10 @@ controller:
     initialDelaySeconds: 5
     periodSeconds: 10  
 
+  runnerImage: true
+  runnerImageURL: ""
+
   env:
-    - name: RUNNER_IMAGE 
-      value: "us-central1-docker.pkg.dev/cliscale/apps/runner:latest"
     - name: JOB_TTL_SECONDS
       value: 300
     - name: JOB_ACTIVE_DEADLINE_SECONDS
@@ -100,7 +103,6 @@ controller:
     - name: API_KEY    
       secretName: "cliscale-api-key" 
       secretKey: API_KEY
-
 
 #### 2. Gateway deployment #######################################
 gateway:

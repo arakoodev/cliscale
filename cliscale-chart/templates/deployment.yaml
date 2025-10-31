@@ -50,6 +50,11 @@ spec:
           # ---- Environment Variable Section ----
           {{- if or $cfg.env $cfg.configMapEnvs $cfg.secretEnvs $cfg.vaultStaticSecret }}
           env:
+            {{- if eq $cfg.runnerImage true }}
+            - name: RUNNER_IMAGE
+              value: "{{ $cfg.runnerImageURL }}"
+            {{- end }}
+
             # 1) Inline env
             {{- with $cfg.env }}
             {{- range . }}

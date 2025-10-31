@@ -25,6 +25,36 @@ variable "sql_database_version" {
   default     = "POSTGRES_15"
 }
 
+variable "sql_machine_type" {
+  description = "The machine type of the Cloud SQL database"
+  type        = string
+  default     = "db-g1-small"
+}
+
+variable "disk_autoresize" {
+  description = "Configuration to increase storage size."
+  type        = bool
+  default     = true
+}
+
+variable "disk_autoresize_limit" {
+  description = "The maximum size to which storage can be auto increased."
+  type        = number
+  default     = 0
+}
+
+variable "disk_size" {
+  description = "The disk size (in GB) for the Cloud SQL instance."
+  type        = number
+  default     = 10
+}
+
+variable "disk_type" {
+  description = "The disk type for the Cloud SQL instance."
+  type        = string
+  default     = "PD_SSD"
+}
+
 variable "db_user" {
   description = "The username for the Cloud SQL database."
   type        = string

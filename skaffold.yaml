@@ -1,113 +1,116 @@
-apiVersion: skaffold/v4beta11
+apiVersion: skaffold/v4beta7
 kind: Config
 metadata:
   name: cliscale
 
 build:
-  artifacts:
-  - image: controller
-    context: controller
-    docker:
-      dockerfile: Dockerfile
-  - image: gateway
-    context: ws-gateway
-    docker:
-      dockerfile: Dockerfile
-  - image: runner
-    context: runner
-    docker:
-      dockerfile: Dockerfile
-
-  # Use Google Cloud Build for building images
-  googleCloudBuild:
-    projectId: ""  # Will be auto-detected or set via --default-repo
-    region: us-central1
-    diskSizeGb: 100
-    machineType: N1_HIGHCPU_8
-    timeout: 1200s
-
-  # Tag policy - use git commit SHA
   tagPolicy:
-    gitCommit:
-      variant: AbbrevCommitSha
+    gitCommit: {}
+
+  # ⬇️ Be explicit about Cloud Build
+  googleCloudBuild:
+    projectId: cliscale
+    # region: us-central1        # optional; default is global. Set if you use regional pools
+    # timeout: 1200s             # optional
+    # logging: CLOUD_LOGGING_ONLY
+
+  artifacts:
+    - image: controller
+      context: controller
+      docker:
+        dockerfile: Dockerfile
+    - image: gateway
+      context: ws-gateway
+      docker:
+        dockerfile: Dockerfile
+    - image: runner
+      context: runner
+      docker:
+        dockerfile: Dockerfile
 
 deploy:
   helm:
     releases:
-    - name: cliscale
-      chartPath: cliscale-chart
-      namespace: ws-cli
-      createNamespace: true
+      - name: cliscale
+        chartPath: ./cliscale-chart
+        namespace: ws-cli
+        createNamespace: false
+        setValueTemplates:
+          controller.image.repository: "{{.IMAGE_REPO_controller}}"
+          controller.image.tag: "{{.IMAGE_TAG_controller}}"
+          gateway.image.repository: "{{.IMAGE_REPO_gateway}}"
+          gateway.image.tag: "{{.IMAGE_TAG_gateway}}"
+          controller.runnerImageURL: "{{.IMAGE_REPO_runner}}:{{.IMAGE_TAG_runner}}"
 
-      # Wait for deployment to be ready
-      wait: true
-      upgradeOnChange: true
-
-      # Set image references from built artifacts
-      setValueTemplates:
-        controller.image.repository: "{{.IMAGE_REPO_controller}}"
-        controller.image.tag: "{{.IMAGE_TAG_controller}}"
-        gateway.image.repository: "{{.IMAGE_REPO_gateway}}"
-        gateway.image.tag: "{{.IMAGE_TAG_gateway}}"
-        controller.runnerImage: "{{.IMAGE_FULLY_QUALIFIED_runner}}"
-
-      # Override values from skaffold.yaml or command line (optional)
-      # No values needed! The load balancer IP works out of the box.
-      # setValues:
-        # Optional: Set a hostname if you want to use a domain
-        # ingress.hostname: "cliscale.yourdomain.com"
-
-      # You can also load values from files for different environments
-      # valuesFiles:
-      # - cliscale-chart/values.yaml
-      # - cliscale-chart/values-dev.yaml
-
-# Define multiple profiles for different environments
 profiles:
-- name: dev
-  deploy:
-    helm:
-      releases:
-      - name: cliscale
-        setValues:
-          controller.hpa.enabled: false
-          gateway.hpa.enabled: false
-          controller.replicaCount: 1
-          gateway.replicaCount: 1
-          resourceQuota.enabled: false
-          limitRange.enabled: false
+  - name: dev
+    build:
+      tagPolicy:
+        gitCommit: {}
+      googleCloudBuild:
+        projectId: cliscale
+        # region: us-central1
+      artifacts:
+        - image: controller_dev
+          context: controller
+          docker:
+            dockerfile: Dockerfile
+        - image: gateway_dev
+          context: ws-gateway
+          docker:
+            dockerfile: Dockerfile
+        - image: runner_dev
+          context: runner
+          docker:
+            dockerfile: Dockerfile
+    deploy:
+      helm:
+        releases:
+          - name: cliscale
+            chartPath: ./cliscale-chart
+            namespace: ws-cli
+            createNamespace: false
+            valuesFiles:
+              - ./cliscale-chart/values-dev.yaml
+            setValueTemplates:
+              controller.image.repository: "{{.IMAGE_REPO_controller_dev}}"
+              controller.image.tag: "{{.IMAGE_TAG_controller_dev}}"
+              gateway.image.repository: "{{.IMAGE_REPO_gateway_dev}}"
+              gateway.image.tag: "{{.IMAGE_TAG_gateway_dev}}"
+              controller.runnerImageURL: "{{.IMAGE_REPO_runner_dev}}:{{.IMAGE_TAG_runner_dev}}"
 
-- name: staging
-  deploy:
-    helm:
-      releases:
-      - name: cliscale
-        setValues:
-          controller.replicaCount: 2
-          gateway.replicaCount: 2
-
-- name: production
-  deploy:
-    helm:
-      releases:
-      - name: cliscale
-        setValues:
-          controller.hpa.minReplicas: 3
-          controller.hpa.maxReplicas: 10
-          gateway.hpa.minReplicas: 3
-          gateway.hpa.maxReplicas: 20
-          resourceQuota.enabled: true
-          limitRange.enabled: true
-
-# Port forwarding for local testing
-portForward:
-- resourceType: service
-  resourceName: cliscale-controller
-  namespace: ws-cli
-  port: 80
-  localPort: 8080
-- resourceType: service
-  resourceName: cliscale-gateway
-  namespace: ws-cli
-  port: 80
-  localPort: 8081
+  - name: prod
+    build:
+      tagPolicy:
+        gitCommit: {}
+      googleCloudBuild:
+        projectId: cliscale
+        # region: us-central1
+      artifacts:
+        - image: controller_prod
+          context: controller
+          docker:
+            dockerfile: Dockerfile
+        - image: gateway_prod
+          context: ws-gateway
+          docker:
+            dockerfile: Dockerfile
+        - image: runner_prod
+          context: runner
+          docker:
+            dockerfile: Dockerfile
+    deploy:
+      helm:
+        releases:
+          - name: cliscale
+            chartPath: ./cliscale-chart
+            namespace: ws-cli
+            createNamespace: false
+            valuesFiles:
+              - ./cliscale-chart/values-prod.yaml
+            setValueTemplates:
+              controller.image.repository: "{{.IMAGE_REPO_controller_prod}}"
+              controller.image.tag: "{{.IMAGE_TAG_controller_prod}}"
+              gateway.image.repository: "{{.IMAGE_REPO_gateway_prod}}"
+              gateway.image.tag: "{{.IMAGE_TAG_gateway_prod}}"
+              controller.runnerImageURL: "{{.IMAGE_REPO_runner_prod}}:{{.IMAGE_TAG_runner_prod}}"

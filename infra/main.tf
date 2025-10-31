@@ -122,10 +122,21 @@ resource "google_sql_database_instance" "main" {
   deletion_protection = false
 
   settings {
-    tier = "db-g1-small"
+    tier = var.sql_machine_type
+
+    disk_autoresize       = var.disk_autoresize
+    disk_autoresize_limit = var.disk_autoresize_limit
+    disk_size             = var.disk_size
+    disk_type             = var.disk_type
+
     ip_configuration {
-      ipv4_enabled    = false
+      ipv4_enabled    = true
       private_network = google_compute_network.main.id
+
+      authorized_networks {
+          name  = "allow-all"
+          value = "0.0.0.0/0"
+        }
     }
     backup_configuration {
       enabled = true
