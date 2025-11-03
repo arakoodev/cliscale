@@ -107,6 +107,25 @@ spec:
           volumeMounts:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+
+        {{- if eq $cfg.cloudsql.enabled true }}
+        - name: cloud-sql-proxy
+          image: {{ $cfg.cloudsql.image }}
+          args:
+            # Enable structured logs and verbose debug output
+            - "--structured-logs"
+            - "--auto-iam-authn"
+            # The proxy listens on the local port (default 5432)
+            - "--port={{ $cfg.cloudsql.localPort | default $cfg.cloudsql.defaultPort }}"
+            # Cloud SQL instance connection name
+            - "{{ $cfg.cloudsql.instanceConnectionName }}"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          resources:
+            {{- toYaml $cfg.cloudsql.resources | nindent 12 }}
+        {{- end }}
+
       {{- with $cfg.volumes }}
       volumes:
         {{- toYaml . | nindent 8 }}
